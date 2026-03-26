@@ -1,0 +1,28 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: synology-proxy-operator-manager-role
+rules:
+  # SynologyReverseProxy CRD
+  - apiGroups: ["proxy.hnet.io"]
+    resources: ["synologyreverseproxies"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["proxy.hnet.io"]
+    resources: ["synologyreverseproxies/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["proxy.hnet.io"]
+    resources: ["synologyreverseproxies/finalizers"]
+    verbs: ["update"]
+  # Secrets (credentials)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch"]
+  # Events
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # Leader election
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
