@@ -1,0 +1,20 @@
+apiVersion: v2
+name: synology-proxy-operator
+description: Kubernetes operator for managing Synology reverse proxy records from Ingress resources
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - synology
+  - reverse-proxy
+  - kubernetes
+  - operator
+  - ingress
+  - certificate
+maintainers:
+  - name: Synology Proxy Operator Team
+    email: maintainers@example.com
+home: https://github.com/phoeluga/synology-proxy-operator
+sources:
+  - https://github.com/phoeluga/synology-proxy-operator
+icon: https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/logo.png

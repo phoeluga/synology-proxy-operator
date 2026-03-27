@@ -1,205 +1,313 @@
-# synology-proxy-operator
+# Synology Proxy Operator
 
-A Kubernetes operator that manages reverse proxy records on a Synology NAS via its WebAPI.
-Define a `SynologyReverseProxy` custom resource and the operator will create, update, or delete
-the corresponding entry in Synology's reverse proxy configuration — including optional wildcard
-certificate assignment and ACL profile binding.
-
----
+A Kubernetes operator that automates Synology reverse proxy management from Ingress resources.
 
 ## Overview
 
-The operator watches `SynologyReverseProxy` resources (CRD group `proxy.hnet.io/v1alpha1`) and
-reconciles them against the Synology DSM WebAPI. It supports:
+The Synology Proxy Operator watches Kubernetes Ingress resources and automatically creates, updates, and deletes reverse proxy records on your Synology NAS. It also handles SSL certificate assignment with wildcard matching support.
 
-- **Login** — acquires a session SID + SynoToken via `SYNO.API.Auth`
-- **List / find** — queries `SYNO.Core.ReverseProxy.Rule` to detect existing records
-- **Upsert** — creates a new record or updates an existing one matched by `description`
-- **Delete** — removes the record when the CR is deleted (via a Kubernetes finalizer)
-- **Certificate assignment** — finds a wildcard cert matching the source hostname via `SYNO.Core.Certificate` and binds it to the proxy rule
-- **ACL profile** — resolves an ACL profile name to its ID via `SYNO.Core.ReverseProxy.ACL`
+### Key Features
 
----
+- 🔄 **Automatic Proxy Management**: Create proxy records from Ingress annotations
+- 🔒 **Certificate Assignment**: Automatic wildcard certificate matching and assignment
+- 🎯 **Namespace Filtering**: Watch specific namespaces with wildcard patterns
+- ♻️ **Deletion Policies**: Configurable retain/delete behavior
+- 🔑 **Credential Management**: Hot-reload credentials from Kubernetes Secrets
+- 🛡️ **Error Handling**: Comprehensive retry logic, circuit breaker, rate limiting
+- 📊 **Observability**: Prometheus metrics, structured logging, Kubernetes Events
+- 🔐 **Security**: RBAC, sensitive data filtering, TLS verification
 
-## Prerequisites
+## Quick Start
 
-- Kubernetes 1.26+
-- `kubectl` configured against your cluster
-- A Synology NAS running DSM 7.x with the reverse proxy feature enabled
-- A Synology user account with permission to manage reverse proxy rules and certificates
-- Docker (for building the image)
+### Prerequisites
 
----
+- Kubernetes cluster (1.25+)
+- Synology NAS with Reverse Proxy package installed
+- kubectl configured
+- Docker (for building images)
 
-## Quick deploy to cluster
+### Installation
 
-### 1. Build and push the image
-
-```bash
-make docker-build IMG=ghcr.io/yourorg/synology-proxy-operator:latest
-make docker-push  IMG=ghcr.io/yourorg/synology-proxy-operator:latest
-```
-
-### 2. Create the credentials Secret
-
+1. **Create namespace**:
 ```bash
 kubectl create namespace synology-proxy-operator
+```
 
+2. **Create credentials secret**:
+```bash
 kubectl create secret generic synology-credentials \
-  --namespace synology-proxy-operator \
-  --from-literal=url=https://nas.hnet.io:5001 \
-  --from-literal=username=admin \
-  --from-literal=password=supersecret \
-  --from-literal=skipTLSVerify=false
+  --from-literal=username=<your-synology-username> \
+  --from-literal=password=<your-synology-password> \
+  -n synology-proxy-operator
 ```
 
-### 3. Deploy the operator
-
+3. **Deploy operator**:
 ```bash
-make deploy IMG=ghcr.io/yourorg/synology-proxy-operator:latest
+# Apply RBAC
+kubectl apply -f config/rbac/
+
+# Apply operator deployment
+kubectl apply -f config/manager/
 ```
 
-This applies the CRD, RBAC resources, and the manager Deployment in one step.
+4. **Configure operator** (edit `config/manager/manager.yaml`):
+```yaml
+env:
+  - name: SYNOLOGY_URL
+    value: "https://your-nas.example.com:5001"
+  - name: WATCH_NAMESPACES
+    value: "*"  # or "production,staging"
+```
 
-### 4. Verify the operator is running
-
+5. **Verify deployment**:
 ```bash
-kubectl -n synology-proxy-operator get pods
-kubectl -n synology-proxy-operator logs -l app=synology-proxy-operator -f
+kubectl get pods -n synology-proxy-operator
+kubectl logs -n synology-proxy-operator -l app=synology-proxy-operator
 ```
 
----
+## Usage
 
-## Configuration — credentials Secret
-
-The operator reads a Secret named `synology-credentials` from its own namespace.
-
-| Key             | Required | Description                                              |
-|-----------------|----------|----------------------------------------------------------|
-| `url`           | yes      | Base URL of the Synology DSM, e.g. `https://nas:5001`   |
-| `username`      | yes      | DSM username                                             |
-| `password`      | yes      | DSM password                                             |
-| `skipTLSVerify` | no       | Set to `"true"` to skip TLS certificate verification     |
-
-Example manifest (use Sealed Secrets or an external secrets operator in production):
+### Basic Ingress Example
 
 ```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: synology-credentials
-  namespace: synology-proxy-operator
-type: Opaque
-stringData:
-  url: "https://nas.hnet.io:5001"
-  username: "admin"
-  password: "supersecret"
-  skipTLSVerify: "false"
-```
-
----
-
-## CRD usage examples
-
-### Basic HTTP → HTTPS proxy
-
-```yaml
-apiVersion: proxy.hnet.io/v1alpha1
-kind: SynologyReverseProxy
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
   name: my-app
-  namespace: default
+  namespace: production
+  annotations:
+    synology.io/enabled: "true"
 spec:
-  description: "my-app"
-  sourceHostname: "myapp.hnet.io"
-  sourcePort: 443
-  sourceProtocol: https
-  destHostname: "10.1.4.200"
-  destPort: 8080
-  destProtocol: http
-  assignCertificate: true
+  rules:
+  - host: app.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: my-app
+            port:
+              number: 8080
 ```
 
-### With ACL profile
+### With ACL Override
 
 ```yaml
-apiVersion: proxy.hnet.io/v1alpha1
-kind: SynologyReverseProxy
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
   name: internal-app
-  namespace: default
+  annotations:
+    synology.io/enabled: "true"
+    synology.io/acl-profile: "InternalOnly"
 spec:
-  description: "internal-app"
-  sourceHostname: "internal.hnet.io"
-  sourcePort: 443
-  sourceProtocol: https
-  destHostname: "10.1.4.201"
-  destPort: 9090
-  destProtocol: http
-  aclProfile: "LAN-only"
-  assignCertificate: true
+  rules:
+  - host: internal.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: internal-app
+            port:
+              number: 8080
 ```
 
-### Check status
-
-```bash
-kubectl get srp
-kubectl describe srp my-app
-```
-
-The `.status` fields show:
-
-- `uuid` — the Synology record UUID
-- `certId` — the assigned certificate ID
-- `conditions` — `Ready` and `Synced` conditions
-
----
-
-## Argo CD ApplicationSet integration
-
-The operator fits naturally into a GitOps workflow. Add it as an application in your
-ApplicationSet so it is deployed alongside your other infrastructure:
+### With Deletion Policy
 
 ```yaml
-# clusters/hnet-k8s-prod/apps/prod/synology-proxy-operator/application.yaml
-apiVersion: argoproj.io/v1alpha1
-kind: Application
+apiVersion: networking.k8s.io/v1
+kind: Ingress
 metadata:
-  name: synology-proxy-operator
-  namespace: argocd
-  finalizers:
-    - resources-finalizer.argocd.argoproj.io
+  name: legacy-app
+  annotations:
+    synology.io/enabled: "true"
+    synology.io/deletion-policy: "retain"
 spec:
-  project: default
-  source:
-    repoURL: 'git@github.com:phoeluga/hnet-k8s-cluster.git'
-    targetRevision: main
-    path: synology-proxy-operator/config
-    directory:
-      recurse: true
-  destination:
-    server: https://kubernetes.default.svc
-    namespace: synology-proxy-operator
-  syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
-    syncOptions:
-      - CreateNamespace=true
+  rules:
+  - host: legacy.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: legacy-app
+            port:
+              number: 80
 ```
 
-Individual `SynologyReverseProxy` CRs can then live in any application directory and be
-managed by the existing `prod-appset.yaml` ApplicationSet — the operator will reconcile them
-automatically.
+## Configuration
 
----
+### Environment Variables
 
-## Uninstall
+| Variable | Description | Default | Required |
+|----------|-------------|---------|----------|
+| `SYNOLOGY_URL` | Synology NAS URL (HTTPS) | - | Yes |
+| `WATCH_NAMESPACES` | Namespace patterns to watch | `*` | No |
+| `DEFAULT_ACL_PROFILE` | Default ACL profile name | `default` | No |
+| `LOG_LEVEL` | Log level (debug/info/warn/error) | `info` | No |
+| `LOG_FORMAT` | Log format (json/text) | `json` | No |
+| `TLS_VERIFY` | Verify TLS certificates | `true` | No |
+| `MAX_RETRIES` | Max API retry attempts | `10` | No |
+
+### Annotations
+
+| Annotation | Description | Default |
+|------------|-------------|---------|
+| `synology.io/enabled` | Enable operator for this Ingress | `false` |
+| `synology.io/acl-profile` | Override ACL profile | Operator default |
+| `synology.io/deletion-policy` | Deletion policy (delete/retain) | `delete` |
+| `synology.io/backend-protocol` | Backend protocol (http/https) | `http` |
+
+## Development
+
+### Building
 
 ```bash
-make undeploy
+# Build binary
+make build
+
+# Build Docker image
+make docker-build
+
+# Run tests
+make test
+
+# Run tests with coverage
+make test-coverage
+
+# Format code
+make fmt
+
+# Run linter
+make lint
 ```
 
-This removes the Deployment, RBAC resources, CRD, and the operator namespace.
-Existing `SynologyReverseProxy` resources will be garbage-collected; the operator will call
-the Synology API to delete the corresponding proxy records before removing the finalizer.
+### Running Locally
+
+```bash
+# Run operator locally (requires kubeconfig)
+make run
+```
+
+### Testing
+
+```bash
+# Run all tests
+go test -v ./...
+
+# Run specific package tests
+go test -v ./pkg/synology/...
+
+# Run with race detection
+go test -v -race ./...
+
+# Generate coverage report
+make test-coverage
+```
+
+## Architecture
+
+### Components
+
+- **ConfigManager**: Configuration loading and validation
+- **Logger**: Structured logging with sensitive data filtering
+- **SynologyClient**: Complete Synology API integration
+- **IngressReconciler**: Kubernetes controller for Ingress resources
+- **CertificateMatcher**: Certificate matching service (exact + wildcard)
+- **MetricsRegistry**: Prometheus metrics collection
+
+### Technology Stack
+
+- **Framework**: Kubebuilder 3.x
+- **Language**: Go 1.21+
+- **Configuration**: Cobra + Viper
+- **Logging**: Zap (structured JSON)
+- **HTTP Client**: net/http (standard library)
+- **Rate Limiting**: golang.org/x/time/rate
+- **Kubernetes**: controller-runtime, client-go
+
+## Monitoring
+
+### Metrics
+
+The operator exposes Prometheus metrics at `:8080/metrics`:
+
+- `synology_operator_reconcile_total` - Total reconciliations
+- `synology_operator_reconcile_duration_seconds` - Reconciliation duration
+- `synology_api_requests_total` - API requests
+- `synology_api_errors_total` - API errors
+- `synology_certificate_cache_hits_total` - Cache hits
+- `synology_certificate_matches_total` - Certificate matches
+
+### Health Checks
+
+- **Liveness**: `http://localhost:8081/healthz`
+- **Readiness**: `http://localhost:8081/readyz`
+
+### Logs
+
+```bash
+# View logs
+kubectl logs -f -n synology-proxy-operator -l app=synology-proxy-operator
+
+# View logs with JSON parsing
+kubectl logs -n synology-proxy-operator -l app=synology-proxy-operator | jq .
+```
+
+## Troubleshooting
+
+### Operator Not Starting
+
+```bash
+# Check pod status
+kubectl get pods -n synology-proxy-operator
+
+# Check pod events
+kubectl describe pod -n synology-proxy-operator <pod-name>
+
+# Check logs
+kubectl logs -n synology-proxy-operator <pod-name>
+```
+
+### Ingress Not Reconciling
+
+1. Check annotation is present: `synology.io/enabled: "true"`
+2. Check namespace is in watch filter
+3. Check operator logs for errors
+4. Verify Synology API connectivity
+
+### Certificate Not Assigned
+
+1. Check certificate exists in Synology
+2. Verify hostname matches certificate CN or SAN
+3. Check operator logs for matching details
+4. Verify certificate cache is working
+
+## Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Run `make verify`
+6. Submit a pull request
+
+## License
+
+[Your License Here]
+
+## Support
+
+For issues and questions:
+- GitHub Issues: [Your Repo URL]
+- Documentation: `docs/` directory
+
+## Acknowledgments
+
+Built using the AI-Driven Development Life Cycle (AI-DLC) workflow.

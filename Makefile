@@ -1,80 +1,95 @@
-# Image URL to use for all building/pushing image targets
-IMG ?= ghcr.io/phoeluga/synology-proxy-operator:latest
+.PHONY: help test build docker-build fmt lint coverage clean run deploy undeploy
 
-# ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest.
-ENVTEST_K8S_VERSION = 1.29.0
+# Default target
+.DEFAULT_GOAL := help
 
-# Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
-ifeq (,$(shell go env GOBIN))
-GOBIN=$(shell go env GOPATH)/bin
-else
-GOBIN=$(shell go env GOBIN)
-endif
+# Variables
+BINARY_NAME=manager
+DOCKER_IMAGE=synology-proxy-operator
+DOCKER_TAG=latest
+NAMESPACE=synology-proxy-operator
 
-SHELL = /usr/bin/env bash -o pipefail
-.SHELLFLAGS = -ec
+# Container runtime (docker or podman)
+CONTAINER_RUNTIME ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 
-.PHONY: all
-all: build
+## help: Display this help message
+help:
+	@echo "Synology Proxy Operator - Makefile targets:"
+	@echo ""
+	@grep -E '^##' $(MAKEFILE_LIST) | sed 's/##//'
 
-##@ General
+## test: Run unit tests
+test:
+	go test -v -race ./...
 
-.PHONY: help
-help: ## Display this help.
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+## test-coverage: Run tests with coverage
+test-coverage:
+	go test -v -race -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
 
-##@ Development
+## build: Build the operator binary
+build:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o bin/$(BINARY_NAME) main.go
+	@echo "Binary built: bin/$(BINARY_NAME)"
 
-.PHONY: fmt
-fmt: ## Run go fmt against code.
-	go fmt ./...
+## docker-build: Build Docker image (supports Docker and Podman)
+docker-build:
+	$(CONTAINER_RUNTIME) build -t $(DOCKER_IMAGE):$(DOCKER_TAG) .
+	@echo "Container image built with $(CONTAINER_RUNTIME): $(DOCKER_IMAGE):$(DOCKER_TAG)"
 
-.PHONY: vet
-vet: ## Run go vet against code.
-	go vet ./...
+## docker-push: Push Docker image to registry (supports Docker and Podman)
+docker-push:
+	$(CONTAINER_RUNTIME) push $(DOCKER_IMAGE):$(DOCKER_TAG)
 
-.PHONY: test
-test: fmt vet ## Run tests.
-	go test ./... -coverprofile cover.out
+## fmt: Format Go code
+fmt:
+	gofmt -w .
+	@echo "Code formatted"
 
-##@ Build
+## lint: Run linter
+lint:
+	golangci-lint run
+	@echo "Linting complete"
 
-.PHONY: build
-build: fmt vet ## Build manager binary.
-	go build -o bin/manager ./
+## clean: Clean build artifacts
+clean:
+	rm -rf bin/
+	rm -f coverage.out coverage.html
+	@echo "Build artifacts cleaned"
 
-.PHONY: run
-run: fmt vet ## Run the operator locally against the current kubeconfig.
-	go run ./main.go
+## run: Run the operator locally
+run:
+	go run main.go \
+		--synology-url=https://nas.example.com:5001 \
+		--synology-secret-name=synology-credentials \
+		--synology-secret-namespace=$(NAMESPACE) \
+		--watch-namespaces="*" \
+		--log-level=debug
 
-.PHONY: docker-build
-docker-build: ## Build docker image with the manager.
-	docker build -t ${IMG} .
-
-.PHONY: docker-push
-docker-push: ## Push docker image with the manager.
-	docker push ${IMG}
-
-##@ Deployment
-
-.PHONY: install
-install: ## Install CRDs into the K8s cluster specified in ~/.kube/config.
-	kubectl apply -f config/crd/
-
-.PHONY: uninstall
-uninstall: ## Uninstall CRDs from the K8s cluster.
-	kubectl delete --ignore-not-found=true -f config/crd/
-
-.PHONY: deploy
-deploy: ## Deploy controller to the K8s cluster specified in ~/.kube/config.
-	kubectl create namespace synology-proxy-operator --dry-run=client -o yaml | kubectl apply -f -
-	kubectl apply -f config/crd/
+## deploy: Deploy operator to Kubernetes
+deploy:
+	kubectl create namespace $(NAMESPACE) --dry-run=client -o yaml | kubectl apply -f -
 	kubectl apply -f config/rbac/
-	sed 's|\$${IMG}|$(IMG)|g' config/manager/deployment.yaml | kubectl apply -f -
+	kubectl apply -f config/manager/
+	@echo "Operator deployed to namespace: $(NAMESPACE)"
 
-.PHONY: undeploy
-undeploy: ## Undeploy controller from the K8s cluster.
-	kubectl delete --ignore-not-found=true -f config/manager/deployment.yaml
-	kubectl delete --ignore-not-found=true -f config/rbac/
-	kubectl delete --ignore-not-found=true -f config/crd/
-	kubectl delete namespace --ignore-not-found=true synology-proxy-operator
+## undeploy: Remove operator from Kubernetes
+undeploy:
+	kubectl delete -f config/manager/ --ignore-not-found=true
+	kubectl delete -f config/rbac/ --ignore-not-found=true
+	@echo "Operator removed from namespace: $(NAMESPACE)"
+
+## logs: View operator logs
+logs:
+	kubectl logs -f -n $(NAMESPACE) -l app=$(DOCKER_IMAGE)
+
+## install-deps: Install development dependencies
+install-deps:
+	go mod download
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+	@echo "Dependencies installed"
+
+## verify: Run all verification checks
+verify: fmt lint test
+	@echo "All verification checks passed"

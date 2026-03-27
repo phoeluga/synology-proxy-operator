@@ -1,29 +1,32 @@
 # Build stage
-FROM golang:1.22-alpine AS builder
+FROM golang:1.21-alpine AS builder
 
 WORKDIR /workspace
 
-# Cache dependencies first
+# Install build dependencies
+RUN apk add --no-cache git ca-certificates
+
+# Copy go mod files
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source
+# Copy source code
 COPY main.go main.go
-COPY api/ api/
-COPY internal/ internal/
+COPY controllers/ controllers/
+COPY pkg/ pkg/
 
-# Build the binary with CGO disabled for a fully static binary
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -a \
-    -ldflags="-s -w" \
-    -o manager \
-    .
+# Build
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -ldflags="-w -s" -o manager main.go
 
-# Runtime stage — distroless for minimal attack surface
+# Runtime stage
 FROM gcr.io/distroless/static:nonroot
 
 WORKDIR /
+
+# Copy binary from builder
 COPY --from=builder /workspace/manager .
+
+# Use non-root user
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]

@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "synology-proxy-operator.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "synology-proxy-operator.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "synology-proxy-operator.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "synology-proxy-operator.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "synology-proxy-operator.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+      - name: operator
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        securityContext:
+          {{- toYaml .Values.securityContext | nindent 10 }}
+        command:
+        - /manager
+        args:
+        - --synology-url={{ required "synology.url is required" .Values.synology.url }}
+        - --secret-name={{ .Values.synology.secretName }}
+        - --secret-namespace={{ include "synology-proxy-operator.secretNamespace" . }}
+        {{- if .Values.synology.tlsVerify }}
+        - --tls-verify=true
+        {{- else }}
+        - --tls-verify=false
+        {{- end }}
+        {{- if .Values.synology.caCertPath }}
+        - --ca-cert-path={{ .Values.synology.caCertPath }}
+        {{- end }}
+        {{- if .Values.synology.defaultACLProfile }}
+        - --default-acl-profile={{ .Values.synology.defaultACLProfile }}
+        {{- end }}
+        - --max-retries={{ .Values.synology.maxRetries }}
+        - --retry-delay={{ .Values.synology.retryDelay }}
+        - --timeout={{ .Values.synology.timeout }}
+        - --watch-namespaces={{ .Values.operator.watchNamespaces }}
+        - --log-level={{ .Values.operator.logLevel }}
+        - --log-format={{ .Values.operator.logFormat }}
+        - --metrics-addr=:{{ .Values.metrics.port }}
+        - --health-probe-addr=:{{ .Values.health.port }}
+        ports:
+        - name: metrics
+          containerPort: {{ .Values.metrics.port }}
+          protocol: TCP
+        - name: health
+          containerPort: {{ .Values.health.port }}
+          protocol: TCP
+        {{- if .Values.health.livenessProbe.enabled }}
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: health
+          initialDelaySeconds: {{ .Values.health.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.health.livenessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.health.livenessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.health.livenessProbe.failureThreshold }}
+        {{- end }}
+        {{- if .Values.health.readinessProbe.enabled }}
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: health
+          initialDelaySeconds: {{ .Values.health.readinessProbe.initialDelaySeconds }}
+          periodSeconds: {{ .Values.health.readinessProbe.periodSeconds }}
+          timeoutSeconds: {{ .Values.health.readinessProbe.timeoutSeconds }}
+          failureThreshold: {{ .Values.health.readinessProbe.failureThreshold }}
+        {{- end }}
+        resources:
+          {{- toYaml .Values.resources | nindent 10 }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

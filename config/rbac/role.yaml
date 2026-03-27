@@ -1,28 +1,31 @@
----
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: synology-proxy-operator-manager-role
+  name: synology-proxy-operator
+  labels:
+    app.kubernetes.io/name: synology-proxy-operator
+    app.kubernetes.io/component: rbac
 rules:
-  # SynologyReverseProxy CRD
-  - apiGroups: ["proxy.hnet.io"]
-    resources: ["synologyreverseproxies"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["proxy.hnet.io"]
-    resources: ["synologyreverseproxies/status"]
-    verbs: ["get", "update", "patch"]
-  - apiGroups: ["proxy.hnet.io"]
-    resources: ["synologyreverseproxies/finalizers"]
-    verbs: ["update"]
-  # Secrets (credentials)
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["get", "list", "watch"]
-  # Events
+  # Ingress resources - read, watch, update status
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses/status"]
+    verbs: ["update", "patch"]
+  
+  # Events - create for user notifications
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
-  # Leader election
-  - apiGroups: ["coordination.k8s.io"]
-    resources: ["leases"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # Secrets - read credentials (specific secret only)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "watch"]
+    resourceNames: ["synology-credentials"]
+  
+  # Namespaces - list for filtering
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["list"]
