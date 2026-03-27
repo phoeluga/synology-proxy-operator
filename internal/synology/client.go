@@ -1,12 +1,11 @@
 // Package synology provides a client for the Synology WebAPI,
-// specifically targeting the reverse proxy and certificate management APIs.
+// specifically targeting the AppPortal reverse proxy and certificate management APIs.
 package synology
 
 import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -14,26 +13,48 @@ import (
 )
 
 const (
-	apiAuth         = "SYNO.API.Auth"
-	apiReverseProxy = "SYNO.Core.ReverseProxy.Rule"
-	apiCertificate  = "SYNO.Core.Certificate"
-	apiACL          = "SYNO.Core.ReverseProxy.ACL"
+	apiAuth        = "SYNO.API.Auth"
+	apiReverseProxy = "SYNO.Core.AppPortal.ReverseProxy"
+	apiCertCRT     = "SYNO.Core.Certificate.CRT"
+	apiCertService = "SYNO.Core.Certificate.Service"
+	apiACL         = "SYNO.Core.AppPortal.AccessControl"
 
 	entryPoint = "/webapi/entry.cgi"
 	authPath   = "/webapi/auth.cgi"
 )
 
-// ReverseProxyEntry represents a single reverse proxy record returned by the Synology API.
+// reverseProxyFrontend mirrors the "frontend" object in the Synology AppPortal API.
+type reverseProxyFrontend struct {
+	FQDN     string              `json:"fqdn"`
+	Port     int                 `json:"port"`
+	Protocol int                 `json:"protocol"` // 0=http, 1=https
+	ACL      string              `json:"acl,omitempty"`
+	HTTPS    *reverseProxyHTTPS  `json:"https,omitempty"`
+}
+
+type reverseProxyHTTPS struct {
+	HSTS bool `json:"hsts"`
+}
+
+// reverseProxyBackend mirrors the "backend" object in the Synology AppPortal API.
+type reverseProxyBackend struct {
+	FQDN     string `json:"fqdn"`
+	Port     int    `json:"port"`
+	Protocol int    `json:"protocol"` // 0=http, 1=https
+}
+
+// reverseProxyCustomHeader is a custom header forwarded by the proxy.
+type reverseProxyCustomHeader struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+// ReverseProxyEntry represents a single reverse proxy record returned by the Synology AppPortal API.
 type ReverseProxyEntry struct {
-	UUID           string `json:"id"`
-	Description    string `json:"description"`
-	SourceScheme   string `json:"src_scheme"`
-	SourceHost     string `json:"src_hostname"`
-	SourcePort     int    `json:"src_port"`
-	DestScheme     string `json:"dst_scheme"`
-	DestHost       string `json:"dst_hostname"`
-	DestPort       int    `json:"dst_port"`
-	ACLProfileID   string `json:"acl_profile_id,omitempty"`
+	UUID        string               `json:"UUID"`
+	Description string               `json:"description"`
+	Frontend    reverseProxyFrontend `json:"frontend"`
+	Backend     reverseProxyBackend  `json:"backend"`
 }
 
 // ReverseProxySpec is the desired state for a reverse proxy record.
@@ -62,7 +83,7 @@ type certSubj struct {
 
 // aclProfile is a minimal ACL profile record.
 type aclProfile struct {
-	ID   string `json:"id"`
+	UUID string `json:"UUID"`
 	Name string `json:"name"`
 }
 
@@ -109,15 +130,15 @@ func NewClient(baseURL, username, password string, skipTLSVerify bool) *Client {
 func (c *Client) Login() error {
 	params := url.Values{}
 	params.Set("api", apiAuth)
-	params.Set("version", "6")
+	params.Set("version", "3")
 	params.Set("method", "login")
 	params.Set("account", c.username)
 	params.Set("passwd", c.password)
-	params.Set("session", "SynologyReverseProxyOperator")
+	params.Set("session", "AppPortal")
 	params.Set("format", "sid")
 	params.Set("enable_syno_token", "yes")
 
-	resp, err := c.httpClient.PostForm(c.baseURL+authPath, params)
+	resp, err := c.postForm(c.baseURL+authPath, params)
 	if err != nil {
 		return fmt.Errorf("synology login request failed: %w", err)
 	}
@@ -151,12 +172,12 @@ func (c *Client) Login() error {
 func (c *Client) Logout() error {
 	params := url.Values{}
 	params.Set("api", apiAuth)
-	params.Set("version", "6")
+	params.Set("version", "3")
 	params.Set("method", "logout")
-	params.Set("session", "SynologyReverseProxyOperator")
+	params.Set("session", "AppPortal")
 	c.addAuth(&params)
 
-	resp, err := c.httpClient.PostForm(c.baseURL+authPath, params)
+	resp, err := c.postForm(c.baseURL+authPath, params)
 	if err != nil {
 		return fmt.Errorf("synology logout request failed: %w", err)
 	}
@@ -166,13 +187,13 @@ func (c *Client) Logout() error {
 
 // listReverseProxyRecords returns all existing reverse proxy records.
 func (c *Client) listReverseProxyRecords() ([]ReverseProxyEntry, error) {
-	params := url.Values{}
-	params.Set("api", apiReverseProxy)
-	params.Set("version", "1")
-	params.Set("method", "list")
-	c.addAuth(&params)
+	payload := url.Values{}
+	payload.Set("api", apiReverseProxy)
+	payload.Set("method", "list")
+	payload.Set("version", "1")
+	c.addAuth(&payload)
 
-	resp, err := c.httpClient.PostForm(c.baseURL+entryPoint, params)
+	resp, err := c.postForm(c.baseURL+entryPoint+"/"+apiReverseProxy, payload)
 	if err != nil {
 		return nil, fmt.Errorf("list reverse proxy request failed: %w", err)
 	}
@@ -187,12 +208,12 @@ func (c *Client) listReverseProxyRecords() ([]ReverseProxyEntry, error) {
 	}
 
 	var data struct {
-		List []ReverseProxyEntry `json:"list"`
+		Entries []ReverseProxyEntry `json:"entries"`
 	}
 	if err := json.Unmarshal(result.Data, &data); err != nil {
 		return nil, fmt.Errorf("list reverse proxy data parse failed: %w", err)
 	}
-	return data.List, nil
+	return data.Entries, nil
 }
 
 // GetExistingRecord finds a reverse proxy record by its description field.
@@ -219,64 +240,87 @@ func (c *Client) UpsertReverseProxy(spec ReverseProxySpec) (string, error) {
 		return "", err
 	}
 
-	params := url.Values{}
-	params.Set("api", apiReverseProxy)
-	params.Set("version", "1")
-	params.Set("description", spec.Description)
-	params.Set("src_scheme", spec.SourceScheme)
-	params.Set("src_hostname", spec.SourceHostname)
-	params.Set("src_port", fmt.Sprintf("%d", spec.SourcePort))
-	params.Set("dst_scheme", spec.DestScheme)
-	params.Set("dst_hostname", spec.DestHostname)
-	params.Set("dst_port", fmt.Sprintf("%d", spec.DestPort))
-	if spec.ACLProfileID != "" {
-		params.Set("acl_profile_id", spec.ACLProfileID)
-	}
-	c.addAuth(&params)
-
+	method := "create"
 	if existing != nil {
-		params.Set("method", "set")
-		params.Set("id", existing.UUID)
-	} else {
-		params.Set("method", "create")
+		method = "set"
 	}
 
-	resp, err := c.httpClient.PostForm(c.baseURL+entryPoint, params)
+	srcProto := 0
+	if strings.ToLower(spec.SourceScheme) == "https" {
+		srcProto = 1
+	}
+	dstProto := 0
+	if strings.ToLower(spec.DestScheme) == "https" {
+		dstProto = 1
+	}
+
+	entry := map[string]interface{}{
+		"description":             spec.Description,
+		"proxy_connect_timeout":   60,
+		"proxy_read_timeout":      60,
+		"proxy_send_timeout":      60,
+		"proxy_http_version":      1,
+		"proxy_intercept_errors":  false,
+		"frontend": reverseProxyFrontend{
+			FQDN:     spec.SourceHostname,
+			Port:     spec.SourcePort,
+			Protocol: srcProto,
+			ACL:      spec.ACLProfileID,
+			HTTPS:    &reverseProxyHTTPS{HSTS: srcProto == 1},
+		},
+		"backend": reverseProxyBackend{
+			FQDN:     spec.DestHostname,
+			Port:     spec.DestPort,
+			Protocol: dstProto,
+		},
+		"customize_headers": []reverseProxyCustomHeader{
+			{Name: "Upgrade", Value: "$http_upgrade"},
+			{Name: "Connection", Value: "$connection_upgrade"},
+		},
+	}
+	if existing != nil {
+		entry["UUID"] = existing.UUID
+	}
+
+	entryJSON, err := json.Marshal(entry)
+	if err != nil {
+		return "", fmt.Errorf("marshal reverse proxy entry failed: %w", err)
+	}
+
+	payload := url.Values{}
+	payload.Set("api", apiReverseProxy)
+	payload.Set("method", method)
+	payload.Set("version", "1")
+	payload.Set("entry", string(entryJSON))
+	c.addAuth(&payload)
+
+	resp, err := c.postForm(c.baseURL+entryPoint+"/"+apiReverseProxy, payload)
 	if err != nil {
 		return "", fmt.Errorf("upsert reverse proxy request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("upsert reverse proxy read body failed: %w", err)
-	}
-
 	var result synologyResponse
-	if err := json.Unmarshal(body, &result); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return "", fmt.Errorf("upsert reverse proxy decode failed: %w", err)
 	}
 	if !result.Success {
 		return "", fmt.Errorf("upsert reverse proxy failed: %s", errorMsg(result.Error))
 	}
 
-	// On update the UUID is already known; on create the API returns it.
 	if existing != nil {
 		return existing.UUID, nil
 	}
 
-	var data struct {
-		ID string `json:"id"`
+	// On create, fetch the newly created record to get its UUID.
+	created, err := c.GetExistingRecord(spec.Description)
+	if err != nil {
+		return "", fmt.Errorf("upsert reverse proxy: failed to retrieve created record: %w", err)
 	}
-	if err := json.Unmarshal(result.Data, &data); err != nil {
-		// Some DSM versions return the id at the top level of data as a plain string.
-		var rawID string
-		if err2 := json.Unmarshal(result.Data, &rawID); err2 == nil {
-			return rawID, nil
-		}
-		return "", fmt.Errorf("upsert reverse proxy parse uuid failed: %w", err)
+	if created == nil {
+		return "", fmt.Errorf("upsert reverse proxy: created record not found after creation")
 	}
-	return data.ID, nil
+	return created.UUID, nil
 }
 
 // DeleteRecord removes a reverse proxy record identified by its description.
@@ -290,14 +334,19 @@ func (c *Client) DeleteRecord(description string) error {
 		return nil
 	}
 
-	params := url.Values{}
-	params.Set("api", apiReverseProxy)
-	params.Set("version", "1")
-	params.Set("method", "delete")
-	params.Set("id", existing.UUID)
-	c.addAuth(&params)
+	uuidsJSON, err := json.Marshal([]string{existing.UUID})
+	if err != nil {
+		return fmt.Errorf("marshal delete uuids failed: %w", err)
+	}
 
-	resp, err := c.httpClient.PostForm(c.baseURL+entryPoint, params)
+	payload := url.Values{}
+	payload.Set("api", apiReverseProxy)
+	payload.Set("method", "delete")
+	payload.Set("version", "1")
+	payload.Set("uuids", string(uuidsJSON))
+	c.addAuth(&payload)
+
+	resp, err := c.postForm(c.baseURL+entryPoint+"/"+apiReverseProxy, payload)
 	if err != nil {
 		return fmt.Errorf("delete reverse proxy request failed: %w", err)
 	}
@@ -317,13 +366,13 @@ func (c *Client) DeleteRecord(description string) error {
 // It supports wildcard certificates (e.g. *.hnet.io matches myapp.hnet.io).
 // Returns certID, certDescription, error.
 func (c *Client) FindMatchingCert(hostname string) (string, string, error) {
-	params := url.Values{}
-	params.Set("api", apiCertificate)
-	params.Set("version", "1")
-	params.Set("method", "list")
-	c.addAuth(&params)
+	payload := url.Values{}
+	payload.Set("api", apiCertCRT)
+	payload.Set("method", "list")
+	payload.Set("version", "1")
+	c.addAuth(&payload)
 
-	resp, err := c.httpClient.PostForm(c.baseURL+entryPoint, params)
+	resp, err := c.postForm(c.baseURL+entryPoint, payload)
 	if err != nil {
 		return "", "", fmt.Errorf("list certificates request failed: %w", err)
 	}
@@ -352,9 +401,7 @@ func (c *Client) FindMatchingCert(hostname string) (string, string, error) {
 	return "", "", nil
 }
 
-// AssignCertificate assigns a certificate to a reverse proxy record.
-// It finds the matching cert for the given hostname and updates the Synology
-// certificate service binding so the proxy uses that cert.
+// AssignCertificate assigns a matching wildcard certificate to a reverse proxy record.
 func (c *Client) AssignCertificate(proxyUUID, hostname string) error {
 	certID, _, err := c.FindMatchingCert(hostname)
 	if err != nil {
@@ -364,87 +411,70 @@ func (c *Client) AssignCertificate(proxyUUID, hostname string) error {
 		return fmt.Errorf("no matching certificate found for hostname %q", hostname)
 	}
 
-	// Fetch current certificate info to get the existing services list.
-	params := url.Values{}
-	params.Set("api", apiCertificate)
-	params.Set("version", "1")
-	params.Set("method", "get")
-	params.Set("id", certID)
-	c.addAuth(&params)
+	type certService struct {
+		Service     map[string]interface{} `json:"service"`
+		OldID       string                 `json:"old_id"`
+		ID          string                 `json:"id"`
+	}
 
-	resp, err := c.httpClient.PostForm(c.baseURL+entryPoint, params)
+	settings := []certService{
+		{
+			Service: map[string]interface{}{
+				"display_name":  hostname,
+				"isPkg":         false,
+				"multiple_cert": true,
+				"owner":         "root",
+				"service":       proxyUUID,
+				"subscriber":    "ReverseProxy",
+				"user_setable":  true,
+			},
+			OldID: "",
+			ID:    certID,
+		},
+	}
+
+	settingsJSON, err := json.Marshal(settings)
 	if err != nil {
-		return fmt.Errorf("get certificate request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	var getResult synologyResponse
-	if err := json.NewDecoder(resp.Body).Decode(&getResult); err != nil {
-		return fmt.Errorf("get certificate decode failed: %w", err)
-	}
-	if !getResult.Success {
-		return fmt.Errorf("get certificate failed: %s", errorMsg(getResult.Error))
+		return fmt.Errorf("marshal certificate settings failed: %w", err)
 	}
 
-	// Build the service binding payload.
-	// Synology expects a JSON array of service objects under the "services" key.
-	type serviceEntry struct {
-		Owner       string `json:"owner"`
-		Service     string `json:"service"`
-		DisplayName string `json:"display_name"`
-		Subscriber  string `json:"subscriber"`
-	}
+	payload := url.Values{}
+	payload.Set("api", apiCertService)
+	payload.Set("method", "set")
+	payload.Set("version", "1")
+	payload.Set("settings", string(settingsJSON))
+	c.addAuth(&payload)
 
-	newService := serviceEntry{
-		Owner:       "ReverseProxy",
-		Service:     proxyUUID,
-		DisplayName: hostname,
-		Subscriber:  "ReverseProxy",
-	}
-
-	servicesJSON, err := json.Marshal([]serviceEntry{newService})
-	if err != nil {
-		return fmt.Errorf("marshal certificate services failed: %w", err)
-	}
-
-	setParams := url.Values{}
-	setParams.Set("api", apiCertificate)
-	setParams.Set("version", "1")
-	setParams.Set("method", "set")
-	setParams.Set("id", certID)
-	setParams.Set("services", string(servicesJSON))
-	c.addAuth(&setParams)
-
-	setResp, err := c.httpClient.PostForm(c.baseURL+entryPoint, setParams)
+	resp, err := c.postForm(c.baseURL+entryPoint, payload)
 	if err != nil {
 		return fmt.Errorf("assign certificate request failed: %w", err)
 	}
-	defer setResp.Body.Close()
+	defer resp.Body.Close()
 
-	var setResult synologyResponse
-	if err := json.NewDecoder(setResp.Body).Decode(&setResult); err != nil {
+	var result synologyResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return fmt.Errorf("assign certificate decode failed: %w", err)
 	}
-	if !setResult.Success {
-		return fmt.Errorf("assign certificate failed: %s", errorMsg(setResult.Error))
+	if !result.Success {
+		return fmt.Errorf("assign certificate failed: %s", errorMsg(result.Error))
 	}
 	return nil
 }
 
-// GetACLProfileID returns the ID of an ACL profile by name.
+// GetACLProfileID returns the UUID of an ACL profile by name.
 // Returns an empty string (and no error) when the profile is not found.
 func (c *Client) GetACLProfileID(profileName string) (string, error) {
 	if profileName == "" {
 		return "", nil
 	}
 
-	params := url.Values{}
-	params.Set("api", apiACL)
-	params.Set("version", "1")
-	params.Set("method", "list")
-	c.addAuth(&params)
+	payload := url.Values{}
+	payload.Set("api", apiACL)
+	payload.Set("method", "list")
+	payload.Set("version", "1")
+	c.addAuth(&payload)
 
-	resp, err := c.httpClient.PostForm(c.baseURL+entryPoint, params)
+	resp, err := c.postForm(c.baseURL+entryPoint+"/"+apiACL, payload)
 	if err != nil {
 		return "", fmt.Errorf("list ACL profiles request failed: %w", err)
 	}
@@ -459,28 +489,39 @@ func (c *Client) GetACLProfileID(profileName string) (string, error) {
 	}
 
 	var data struct {
-		List []aclProfile `json:"list"`
+		Entries []aclProfile `json:"entries"`
 	}
 	if err := json.Unmarshal(result.Data, &data); err != nil {
 		return "", fmt.Errorf("list ACL profiles data parse failed: %w", err)
 	}
 
-	for _, p := range data.List {
+	for _, p := range data.Entries {
 		if p.Name == profileName {
-			return p.ID, nil
+			return p.UUID, nil
 		}
 	}
 	return "", nil
 }
 
-// addAuth injects the SID and SynoToken into a request's form values.
+// addAuth injects the SID into a request's form values.
+// The SynoToken is sent as an HTTP header via postForm.
 func (c *Client) addAuth(params *url.Values) {
 	if c.sid != "" {
 		params.Set("_sid", c.sid)
 	}
-	if c.synoToken != "" {
-		params.Set("SynoToken", c.synoToken)
+}
+
+// postForm is a helper that POSTs form data and injects the X-SYNO-TOKEN header when available.
+func (c *Client) postForm(endpoint string, params url.Values) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodPost, endpoint, strings.NewReader(params.Encode()))
+	if err != nil {
+		return nil, err
 	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if c.synoToken != "" {
+		req.Header.Set("X-SYNO-TOKEN", c.synoToken)
+	}
+	return c.httpClient.Do(req)
 }
 
 // certMatchesHostname checks whether a certificate covers the given hostname,
@@ -491,7 +532,6 @@ func certMatchesHostname(cert CertEntry, hostname string) bool {
 		if name == hostname {
 			return true
 		}
-		// Wildcard match: *.example.com should match sub.example.com
 		if strings.HasPrefix(name, "*.") {
 			suffix := name[1:] // ".example.com"
 			if strings.HasSuffix(hostname, suffix) && !strings.Contains(strings.TrimSuffix(hostname, suffix), ".") {
