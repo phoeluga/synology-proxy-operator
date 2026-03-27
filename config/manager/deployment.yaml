@@ -16,6 +16,8 @@ spec:
       labels:
         app: synology-proxy-operator
     spec:
+      imagePullSecrets:
+        - name: ghcr-pull-secret
       serviceAccountName: synology-proxy-operator
       securityContext:
         runAsNonRoot: true
