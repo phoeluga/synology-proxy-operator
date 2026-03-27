@@ -26,7 +26,7 @@ spec:
       containers:
         - name: manager
           image: ghcr.io/phoeluga/synology-proxy-operator:latest
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Always
           args:
             - --leader-elect
             - --operator-namespace=$(POD_NAMESPACE)
