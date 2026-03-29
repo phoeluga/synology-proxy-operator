@@ -1,0 +1,18 @@
+---
+# Manual SynologyProxyRule (no ArgoCD — tests the rule controller directly).
+# The operator will discover the nginx LoadBalancer ExternalIP automatically.
+# Change sourceHost to a hostname that resolves to your Synology (or use /etc/hosts).
+apiVersion: proxy.synology.io/v1alpha1
+kind: SynologyProxyRule
+metadata:
+  name: nginx-test
+  namespace: synology-proxy-operator
+spec:
+  sourceHost: nginx-test.hnet.casa
+  sourcePort: 443
+  serviceRef:
+    name: nginx
+    namespace: nginx-test
+  destinationProtocol: http
+  assignCertificate: true   # set true once a matching cert exists in DSM
+  description: nginx-test

@@ -54,11 +54,11 @@ func main() {
 		synologySkipTLSVerify bool
 
 		// Operator behaviour.
-		defaultACLProfile  string
-		defaultDomain      string
-		watchNamespace     string
-		ruleNamespace      string
-		enableArgoWatcher  bool
+		defaultACLProfile string
+		defaultDomain     string
+		watchNamespace    string
+		ruleNamespace     string
+		enableArgoWatcher bool
 	)
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")

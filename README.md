@@ -34,13 +34,14 @@ You can also create `SynologyProxyRule` objects **directly**, without ArgoCD.
 
 ## Prerequisites
 
-| Tool | Version |
-|------|---------|
-| Go | ≥ 1.22 |
-| Docker | ≥ 24 |
-| kubectl | ≥ 1.28 |
-| Helm | ≥ 3.14 |
-| ArgoCD (optional) | ≥ 2.8 |
+| Tool | Version | Notes |
+|------|---------|-------|
+| Go | ≥ 1.22 | Build only |
+| Docker or Podman | ≥ 24 / ≥ 4 | Image builds |
+| kubectl | ≥ 1.28 | |
+| Helm | ≥ 3.14 | |
+| minikube | ≥ 1.32 | Local dev cluster |
+| ArgoCD | ≥ 2.8 | Optional |
 
 ---
 
@@ -182,11 +183,16 @@ synology-proxy-operator    myapp    myapp.home.example.com       192.168.1.100  
 
 ### Prerequisites
 
-```bash
-# Install Go toolchain (https://go.dev/dl/)
-go version   # >= 1.22
+| Tool | Install |
+|---|---|
+| Go ≥ 1.22 | `brew install go` |
+| minikube | `brew install minikube` |
+| Podman or Docker | `brew install podman` / Docker Desktop |
+| kubectl | `brew install kubectl` |
+| Helm | `brew install helm` |
 
-# Install controller-gen
+```bash
+# Install controller-gen locally
 make controller-gen
 
 # Download module dependencies
@@ -196,14 +202,19 @@ go mod tidy
 ### Build
 
 ```bash
-# Compile binary
-make build
+make build    # compile binary to bin/manager
+make lint     # run golangci-lint
+make test     # run unit tests with envtest
+```
 
-# Run linter
-make lint
+### Container image
 
-# Run tests
-make test
+```bash
+# Build with Docker (default) or Podman
+make image-build CONTAINER_TOOL=podman IMG=synology-proxy-operator:dev
+
+# Multi-arch push (Docker buildx only)
+make image-buildx IMG=ghcr.io/youruser/synology-proxy-operator:latest
 ```
 
 ### Regenerate CRD manifests
@@ -213,11 +224,8 @@ After changing `api/v1alpha1/synologyproxyrule_types.go`:
 ```bash
 make manifests   # regenerates config/crd/bases/*.yaml
 make generate    # regenerates zz_generated.deepcopy.go
-```
 
-Copy the updated CRD into the Helm chart:
-
-```bash
+# Copy updated CRD into Helm chart
 cp config/crd/bases/*.yaml helm/synology-proxy-operator/crds/
 ```
 
@@ -225,7 +233,7 @@ cp config/crd/bases/*.yaml helm/synology-proxy-operator/crds/
 
 ## Local testing
 
-See [docs/local-testing.md](docs/local-testing.md) for a complete step-by-step guide using Kind.
+See [docs/local-testing.md](docs/local-testing.md) for a full walkthrough using minikube (Podman or Docker), including VSCode debugger setup.
 
 ---
 
@@ -263,14 +271,16 @@ synology-proxy-operator/
 │   │   ├── argoapplication_controller.go   # Watches ArgoCD Apps → creates SynologyProxyRule
 │   │   └── synologyproxyrule_controller.go # Reconciles rules with DSM
 │   └── synology/               # Synology DSM API client
-│       ├── client.go           # HTTP session, login, post helper
-│       ├── proxy.go            # Proxy record CRUD
-│       ├── certificate.go      # Certificate lookup & assignment
-│       └── acl.go              # ACL profile resolution
+│       ├── client.go           # HTTP session, login, post helper, wire types
+│       ├── proxy.go            # Proxy record CRUD (create/update/delete, idempotency check)
+│       ├── certificate.go      # Certificate matching & assignment (wildcard/SAN + default fallback)
+│       └── acl.go              # ACL profile UUID resolution
 ├── config/
 │   ├── crd/bases/              # CRD YAML manifests (generated)
 │   ├── rbac/                   # ClusterRole, ClusterRoleBinding, ServiceAccount
-│   └── manager/                # Deployment manifest
+│   └── manager/                # Deployment + ConfigMap
+├── hack/
+│   └── dev/                    # Local dev fixtures (namespaces, nginx, test SynologyProxyRule, ArgoCD app)
 ├── helm/
 │   └── synology-proxy-operator/
 │       ├── Chart.yaml
@@ -280,8 +290,12 @@ synology-proxy-operator/
 ├── docs/
 │   └── local-testing.md
 ├── .github/workflows/
-│   ├── ci.yaml
-│   └── release.yaml
+│   ├── ci.yaml                 # Build, test, lint, push :latest on merge to main
+│   └── release.yaml            # Push versioned tag + Helm chart on git tag
+├── .vscode/
+│   ├── launch.json             # Debug configs (local + minikube)
+│   └── tasks.json              # Pre-launch tasks
+├── .env.local.example          # Credentials template (copy to .env.local)
 ├── Dockerfile
 ├── Makefile
 └── README.md

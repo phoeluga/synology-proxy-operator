@@ -14,7 +14,9 @@ vendor/
 
 # IDE
 .idea/
-.vscode/
+# Keep .vscode/launch.json and tasks.json in git — only ignore user-local settings
+.vscode/*.code-workspace
+.vscode/settings.json
 *.swp
 *.swo
 
@@ -28,6 +30,7 @@ kubeconfig
 # Secrets — never commit real credentials
 *.env
 .env
+.env.local
 secrets.yaml
 secret.yaml
 

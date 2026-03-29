@@ -53,8 +53,8 @@ const (
 // deletes SynologyProxyRule objects to reflect the desired proxy configuration.
 type ArgoApplicationReconciler struct {
 	client.Client
-	Scheme        *runtime.Scheme
-	Log           logr.Logger
+	Scheme *runtime.Scheme
+	Log    logr.Logger
 	// DefaultDomain is appended to the app name when no source-host annotation is present.
 	// E.g. "example.com" produces "myapp.example.com".
 	DefaultDomain string
@@ -108,8 +108,12 @@ func (r *ArgoApplicationReconciler) reconcileRule(ctx context.Context, log logr.
 
 	if apierrors.IsNotFound(err) {
 		log.Info("Creating SynologyProxyRule for Application", "rule", ruleName)
-		if err := controllerutil.SetControllerReference(app, desired, r.Scheme); err != nil {
-			return fmt.Errorf("setting owner reference: %w", err)
+		// Owner references are only valid within the same namespace.
+		// When app and rule are in different namespaces, ownership is tracked via labels.
+		if app.Namespace == ruleNS {
+			if err := controllerutil.SetControllerReference(app, desired, r.Scheme); err != nil {
+				return fmt.Errorf("setting owner reference: %w", err)
+			}
 		}
 		return r.Create(ctx, desired)
 	}
@@ -124,8 +128,9 @@ func (r *ArgoApplicationReconciler) reconcileRule(ctx context.Context, log logr.
 }
 
 // deleteRuleIfExists deletes a SynologyProxyRule only if it was created by this
-// operator (i.e. carries an owner reference to the Application). Rules added
-// manually via resources.yaml have no such owner reference and are left alone.
+// operator. Same-namespace rules are identified by owner reference; cross-namespace
+// rules (Application in argocd, rule in synology-proxy-operator) by managed-by labels.
+// Rules added manually have neither and are left alone.
 func (r *ArgoApplicationReconciler) deleteRuleIfExists(ctx context.Context, log logr.Logger, app *argo.Application) error {
 	rule := &proxyv1alpha1.SynologyProxyRule{}
 	err := r.Get(ctx, client.ObjectKey{Name: ruleNameForApp(app), Namespace: r.RuleNamespace}, rule)
@@ -135,7 +140,11 @@ func (r *ArgoApplicationReconciler) deleteRuleIfExists(ctx context.Context, log 
 	if err != nil {
 		return err
 	}
-	if !metav1.IsControlledBy(rule, app) {
+	// Same-namespace: check owner reference. Cross-namespace: check labels.
+	ownedByRef := metav1.IsControlledBy(rule, app)
+	ownedByLabel := rule.Labels["proxy.synology.io/managed-by-argo-app"] == app.Name &&
+		rule.Labels["proxy.synology.io/managed-by-argo-app-ns"] == app.Namespace
+	if !ownedByRef && !ownedByLabel {
 		log.V(1).Info("SynologyProxyRule not owned by this Application, skipping delete", "rule", rule.Name)
 		return nil
 	}
@@ -179,7 +188,7 @@ func (r *ArgoApplicationReconciler) buildRule(app *argo.Application, name, ns st
 			Name:      name,
 			Namespace: ns,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by":              "synology-proxy-operator",
+				"app.kubernetes.io/managed-by":             "synology-proxy-operator",
 				"proxy.synology.io/managed-by-argo-app":    app.Name,
 				"proxy.synology.io/managed-by-argo-app-ns": app.Namespace,
 			},

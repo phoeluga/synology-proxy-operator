@@ -34,24 +34,25 @@ type apiError struct {
 
 // ProxyEntry is the full record sent to / received from the DSM API.
 type ProxyEntry struct {
-	UUID                string         `json:"UUID,omitempty"`
-	Description         string         `json:"description"`
-	ProxyConnectTimeout int            `json:"proxy_connect_timeout"`
-	ProxyReadTimeout    int            `json:"proxy_read_timeout"`
-	ProxySendTimeout    int            `json:"proxy_send_timeout"`
-	ProxyHTTPVersion    int            `json:"proxy_http_version"`
-	ProxyInterceptErrors bool          `json:"proxy_intercept_errors"`
-	Frontend            ProxyFrontend  `json:"frontend"`
-	Backend             ProxyBackend   `json:"backend"`
-	CustomizeHeaders    []CustomHeader `json:"customize_headers"`
+	UUID                 string         `json:"UUID,omitempty"`
+	Key                  string         `json:"_key,omitempty"`
+	Description          string         `json:"description"`
+	ProxyConnectTimeout  int            `json:"proxy_connect_timeout"`
+	ProxyReadTimeout     int            `json:"proxy_read_timeout"`
+	ProxySendTimeout     int            `json:"proxy_send_timeout"`
+	ProxyHTTPVersion     int            `json:"proxy_http_version"`
+	ProxyInterceptErrors bool           `json:"proxy_intercept_errors"`
+	Frontend             ProxyFrontend  `json:"frontend"`
+	Backend              ProxyBackend   `json:"backend"`
+	CustomizeHeaders     []CustomHeader `json:"customize_headers"`
 }
 
 // ProxyFrontend is the source (public) side of a reverse proxy rule.
 type ProxyFrontend struct {
-	ACL      string      `json:"acl"`
-	FQDN     string      `json:"fqdn"`
-	Port     int         `json:"port"`
-	Protocol int         `json:"protocol"` // 1 = HTTPS
+	ACL      string       `json:"acl,omitempty"`
+	FQDN     string       `json:"fqdn"`
+	Port     int          `json:"port"`
+	Protocol int          `json:"protocol"` // 1 = HTTPS
 	HTTPS    *HTTPSConfig `json:"https,omitempty"`
 }
 
@@ -75,9 +76,10 @@ type CustomHeader struct {
 
 // Certificate holds the DSM certificate metadata.
 type Certificate struct {
-	ID      string          `json:"id"`
-	Desc    string          `json:"desc"`
-	Subject CertSubject     `json:"subject"`
+	ID        string      `json:"id"`
+	Desc      string      `json:"desc"`
+	IsDefault bool        `json:"is_default"`
+	Subject   CertSubject `json:"subject"`
 }
 
 // CertSubject holds CN and SANs of a certificate.
@@ -143,7 +145,7 @@ func New(cfg Config, log logr.Logger) (*Client, error) {
 		httpClient: &http.Client{
 			Transport: transport,
 			Jar:       jar,
-			Timeout:   30 * time.Second,
+			Timeout:   3 * time.Minute,
 		},
 		log: log,
 	}, nil
@@ -221,6 +223,9 @@ func (c *Client) post(ctx context.Context, endpoint string, form url.Values) (js
 	}
 
 	form.Set("_sid", c.sid)
+	if c.synoToken != "" {
+		form.Set("SynoToken", c.synoToken)
+	}
 
 	apiURL := strings.TrimSuffix(c.cfg.URL, "/") + endpoint
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, strings.NewReader(form.Encode()))

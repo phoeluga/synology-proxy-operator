@@ -95,9 +95,10 @@ func (c *Client) GetProxyRecord(ctx context.Context, name string) (*ProxyEntry, 
 }
 
 // UpsertProxyRule creates or updates a DSM reverse proxy record based on rule.
-// It returns the record UUID and whether the source hostname changed (which
-// triggers certificate reassignment).
-func (c *Client) UpsertProxyRule(ctx context.Context, rule ProxyRule) (uuid string, hostnameChanged bool, err error) {
+// It returns the record UUID and written=true when DSM was actually called
+// (i.e. the record was created or updated). written=false means the record
+// already matched the desired state and no API call was made.
+func (c *Client) UpsertProxyRule(ctx context.Context, rule ProxyRule) (uuid string, written bool, err error) {
 	r := rule.withDefaults()
 
 	existing, err := c.GetProxyRecord(ctx, r.Description)
@@ -132,35 +133,53 @@ func (c *Client) UpsertProxyRule(ctx context.Context, rule ProxyRule) (uuid stri
 		CustomizeHeaders: r.CustomHeaders,
 	}
 
-	method := "create"
 	if existing != nil {
-		method = "set"
+		if proxyRecordEqual(existing, &entry) {
+			c.log.Info("Proxy record unchanged, skipping update", "description", r.Description, "uuid", existing.UUID)
+			return existing.UUID, false, nil
+		}
+
+		// Update in place using the UUID and _key from the existing record.
+		written = existing.Frontend.FQDN != r.SourceHost
 		entry.UUID = existing.UUID
-		hostnameChanged = existing.Frontend.FQDN != r.SourceHost
-		c.log.Info("Updating existing proxy record", "description", r.Description, "uuid", existing.UUID)
-	} else {
-		hostnameChanged = true
-		c.log.Info("Creating new proxy record", "description", r.Description)
+		entry.Key = existing.Key
+		c.log.Info("Updating proxy record", "description", r.Description, "uuid", existing.UUID)
+
+		entryJSON, err := json.Marshal(entry)
+		if err != nil {
+			return "", false, fmt.Errorf("marshalling entry: %w", err)
+		}
+		c.log.Info("DSM proxy payload", "method", "update", "entry", string(entryJSON))
+
+		_, err = c.post(ctx, proxyEndpoint, url.Values{
+			"api":     {proxyAPI},
+			"method":  {"update"},
+			"version": {"1"},
+			"entry":   {string(entryJSON)},
+		})
+		if err != nil {
+			return "", false, fmt.Errorf("DSM update proxy record: %w", err)
+		}
+		return existing.UUID, written, nil
 	}
+
+	written = true
+	c.log.Info("Creating new proxy record", "description", r.Description)
 
 	entryJSON, err := json.Marshal(entry)
 	if err != nil {
 		return "", false, fmt.Errorf("marshalling entry: %w", err)
 	}
+	c.log.Info("DSM proxy payload", "method", "create", "entry", string(entryJSON))
 
 	data, err := c.post(ctx, proxyEndpoint, url.Values{
 		"api":     {proxyAPI},
-		"method":  {method},
+		"method":  {"create"},
 		"version": {"1"},
 		"entry":   {string(entryJSON)},
 	})
 	if err != nil {
-		return "", false, fmt.Errorf("DSM %s proxy record: %w", method, err)
-	}
-
-	// For create, the UUID is returned in the response; for set we already have it.
-	if existing != nil {
-		return existing.UUID, hostnameChanged, nil
+		return "", false, fmt.Errorf("DSM create proxy record: %w", err)
 	}
 
 	var createResp struct {
@@ -168,14 +187,24 @@ func (c *Client) UpsertProxyRule(ctx context.Context, rule ProxyRule) (uuid stri
 	}
 	_ = json.Unmarshal(data, &createResp)
 	if createResp.UUID == "" {
-		// Fallback: re-fetch to obtain UUID.
 		rec, err := c.GetProxyRecord(ctx, r.Description)
 		if err != nil || rec == nil {
-			return "", hostnameChanged, fmt.Errorf("created record but could not retrieve UUID")
+			return "", written, fmt.Errorf("created record but could not retrieve UUID")
 		}
-		return rec.UUID, hostnameChanged, nil
+		return rec.UUID, written, nil
 	}
-	return createResp.UUID, hostnameChanged, nil
+	return createResp.UUID, written, nil
+}
+
+// proxyRecordEqual returns true if the existing DSM record matches the desired entry
+// for all fields the operator manages. Fields not managed (e.g. UUID) are ignored.
+func proxyRecordEqual(existing, desired *ProxyEntry) bool {
+	return existing.Frontend.FQDN == desired.Frontend.FQDN &&
+		existing.Frontend.Port == desired.Frontend.Port &&
+		existing.Frontend.ACL == desired.Frontend.ACL &&
+		existing.Backend.FQDN == desired.Backend.FQDN &&
+		existing.Backend.Port == desired.Backend.Port &&
+		existing.Backend.Protocol == desired.Backend.Protocol
 }
 
 // DeleteProxyRecord deletes the DSM reverse proxy record with the given description.

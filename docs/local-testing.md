@@ -1,293 +1,264 @@
 # Local Testing Guide
 
-This guide walks through running the Synology Proxy Operator locally against a Kind cluster, from cluster creation to verifying that proxy records are created in (or simulated against) your Synology DSM.
+This guide covers running the operator locally against a **minikube** cluster (with Podman or Docker as the container runtime), including VSCode debugging.
 
 ---
 
-## 1. Prerequisites
+## Prerequisites
 
-Install the following tools:
+| Tool | Install | Notes |
+|---|---|---|
+| Go ≥ 1.22 | `brew install go` | |
+| minikube | `brew install minikube` | |
+| Docker | Docker Desktop | Required as minikube driver — see note below |
+| kubectl | `brew install kubectl` | |
+| Helm | `brew install helm` | |
 
-```bash
-# Kind — local Kubernetes clusters in Docker
-brew install kind          # macOS
-# or: curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64 && chmod +x kind && mv kind /usr/local/bin/
-
-# kubectl
-brew install kubectl
-
-# Helm
-brew install helm
-
-# Go 1.22+
-brew install go
-
-# golangci-lint (optional, for linting)
-brew install golangci-lint
-```
+> **minikube driver on macOS:** Use the `docker` driver (default in the Makefile).
+> The `podman` driver runs inside a Podman Machine VM that lacks `cpuset` cgroups,
+> which kubeadm requires. Docker Desktop's VM exposes full cgroup support.
 
 ---
 
-## 2. Create a Kind cluster
+## 1. Create the dev cluster
 
 ```bash
-# Create a cluster with one control plane node
-kind create cluster --name synology-test
+# Uses podman by default. Switch to docker with MINIKUBE_DRIVER=docker.
+make minikube-start
+
+# Switch your kubectl context to the dev cluster
+make minikube-context
 
 # Verify
-kubectl cluster-info --context kind-synology-test
 kubectl get nodes
 ```
 
+Default profile name is `synology-dev`. Override with `MINIKUBE_PROFILE=<name>`.
+
 ---
 
-## 3. Install ArgoCD (optional — only needed for the ArgoCD watcher)
+## 2. Install CRDs and RBAC
 
 ```bash
-kubectl create namespace argocd
-kubectl apply -n argocd \
-  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+make dev-install
+```
 
-# Wait for ArgoCD to be ready
-kubectl wait --for=condition=available deployment/argocd-server -n argocd --timeout=120s
+This applies `config/crd/bases/` and `config/rbac/` and creates the `synology-proxy-operator` namespace.
+
+---
+
+## 3. Install ArgoCD (optional)
+
+Only needed if you want to test the ArgoCD Application watcher.
+
+```bash
+make dev-argocd
+```
+
+This installs ArgoCD, waits for it to be ready, and prints the initial admin password.
+
+---
+
+## 4. Deploy test resources
+
+```bash
+make dev-test-app
+```
+
+Applies everything in `hack/dev/`:
+- `nginx` Deployment + LoadBalancer Service in namespace `nginx-test`
+- A manual `SynologyProxyRule` pointing at nginx
+- An ArgoCD `Application` with proxy annotations (if ArgoCD is installed)
+
+---
+
+## 5. Expose LoadBalancer IPs
+
+minikube's LoadBalancer support requires a tunnel. Run this in a **separate terminal** and leave it open:
+
+```bash
+make minikube-tunnel
+```
+
+After a few seconds the nginx Service gets an ExternalIP:
+
+```bash
+kubectl get svc -n nginx-test nginx
+# NAME    TYPE           CLUSTER-IP     EXTERNAL-IP   PORT(S)        AGE
+# nginx   LoadBalancer   10.96.x.x      127.0.0.x     80:32xxx/TCP   1m
 ```
 
 ---
 
-## 4. Build the operator image and load it into Kind
+## 6. Configure credentials
 
 ```bash
-# From the project root
-make docker-build IMG=synology-proxy-operator:dev
-
-# Load into Kind (no registry push needed for local testing)
-kind load docker-image synology-proxy-operator:dev --name synology-test
+cp .env.local.example .env.local
 ```
+
+Edit `.env.local`:
+
+```bash
+SYNOLOGY_URL=https://192.168.1.x:5001
+SYNOLOGY_USER=admin
+SYNOLOGY_PASSWORD=changeme
+SYNOLOGY_SKIP_TLS_VERIFY=true
+
+DEFAULT_DOMAIN=
+DEFAULT_ACL_PROFILE=
+RULE_NAMESPACE=synology-proxy-operator
+ENABLE_ARGO_WATCHER=true
+```
+
+`.env.local` is git-ignored — never commit it.
 
 ---
 
-## 5. Install the CRD
+## 7. Run the operator
+
+### Option A — VSCode debugger (recommended)
+
+1. Open the **Run and Debug** panel (`⇧⌘D`)
+2. Select **"Run operator (minikube)"**
+3. Press **F5**
+
+The operator runs on your Mac with the minikube kubeconfig, with full breakpoint and variable inspection support.
+
+Good breakpoints to set for the 4151 / DSM API errors:
+- [`synologyproxyrule_controller.go:98`](../internal/controller/synologyproxyrule_controller.go#L98) — `reconcileUpsert` entry
+- [`proxy.go:100`](../internal/synology/proxy.go#L100) — `UpsertProxyRule`, just before the DSM call
+- [`client.go:250`](../internal/synology/client.go#L250) — `post`, to inspect raw HTTP responses
+
+### Option B — Terminal
 
 ```bash
-kubectl apply -f config/crd/bases/proxy.synology.io_synologyproxyrules.yaml
-
-# Verify
-kubectl get crd synologyproxyrules.proxy.synology.io
+make dev-run
 ```
+
+Reads `.env.local` automatically and runs with `--zap-devel=true` for pretty-printed logs.
 
 ---
 
-## 6. Option A — Run the operator outside the cluster (easiest for development)
+## 8. Test scenarios
 
-This is the fastest feedback loop: you run the binary on your laptop and it
-talks to both the Kind cluster and your real (or mock) Synology DSM.
+### Scenario A — Manual SynologyProxyRule
 
-```bash
-export SYNOLOGY_URL="https://your-diskstation:5001"
-export SYNOLOGY_USER="admin"
-export SYNOLOGY_PASSWORD="secret"
-export SYNOLOGY_SKIP_TLS_VERIFY="true"    # if DSM uses self-signed cert
-export DEFAULT_DOMAIN="home.example.com"
-
-make run
-```
-
-The operator will use your current `~/.kube/config` context
-(`kind-synology-test`).
-
----
-
-## 6. Option B — Deploy the operator inside Kind via Helm
+`hack/dev/02-proxy-rule.yaml` is already applied by `make dev-test-app`. Watch it reconcile:
 
 ```bash
-# Install RBAC + operator
-helm upgrade --install synology-proxy-operator \
-  helm/synology-proxy-operator \
-  --namespace synology-proxy-operator \
-  --create-namespace \
-  --set image.repository=synology-proxy-operator \
-  --set image.tag=dev \
-  --set image.pullPolicy=Never \
-  --set synology.url="https://your-diskstation:5001" \
-  --set synology.username="admin" \
-  --set synology.password="secret" \
-  --set synology.skipTLSVerify=true \
-  --set operator.defaultDomain="home.example.com"
-
-# Watch operator logs
-kubectl logs -n synology-proxy-operator -l app.kubernetes.io/name=synology-proxy-operator -f
-```
-
----
-
-## 7. Create a test LoadBalancer service
-
-Kind does not provide an external IP by default.  Install MetalLB or use a
-simple workaround: patch the Service manually to simulate an external IP.
-
-### Option A — MetalLB (realistic)
-
-```bash
-kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/v0.14.5/config/manifests/metallb-native.yaml
-kubectl wait --for=condition=available deployment/controller -n metallb-system --timeout=90s
-
-# Get the Docker bridge subnet Kind uses
-SUBNET=$(docker network inspect kind | jq -r '.[0].IPAM.Config[0].Subnet')
-# Typically 172.18.0.0/16 — pick a small range from within it
-cat <<EOF | kubectl apply -f -
-apiVersion: metallb.io/v1beta1
-kind: IPAddressPool
-metadata:
-  name: kind-pool
-  namespace: metallb-system
-spec:
-  addresses:
-    - 172.18.255.200-172.18.255.250
----
-apiVersion: metallb.io/v1beta1
-kind: L2Advertisement
-metadata:
-  name: kind-l2
-  namespace: metallb-system
-EOF
-```
-
-### Option B — Manual patch (quick hack)
-
-```bash
-kubectl patch svc <service-name> -n <namespace> \
-  --type='json' \
-  -p='[{"op":"add","path":"/status/loadBalancer/ingress","value":[{"ip":"1.2.3.4"}]}]'
-```
-
----
-
-## 8. Test scenario A — SynologyProxyRule directly
-
-```bash
-cat <<EOF | kubectl apply -f -
-apiVersion: proxy.synology.io/v1alpha1
-kind: SynologyProxyRule
-metadata:
-  name: test-app
-  namespace: synology-proxy-operator
-spec:
-  sourceHost: test-app.home.example.com
-  destinationHost: 192.168.1.100   # use your real server or the MetalLB IP
-  destinationPort: 8080
-  aclProfile: ""
-  assignCertificate: true
-EOF
-
-# Watch status
 kubectl get spr -n synology-proxy-operator -w
-
-# Describe for conditions / events
-kubectl describe spr test-app -n synology-proxy-operator
 ```
 
-Expected: `SYNCED = true` and `UUID` populated once the DSM API call succeeds.
-
----
-
-## 9. Test scenario B — ArgoCD Application → auto-create SynologyProxyRule
+Expected: `SYNCED = true` and `UUID` populated once the DSM call succeeds.
 
 ```bash
-# Deploy a sample app
-kubectl create namespace demo
-kubectl create deployment demo --image=nginx --namespace=demo
-kubectl expose deployment demo --type=LoadBalancer --port=80 -n demo
+# Describe for conditions and events
+kubectl describe spr nginx-test -n synology-proxy-operator
 
-# Simulate ArgoCD Application (minimal)
-cat <<EOF | kubectl apply -f -
-apiVersion: argoproj.io/v1alpha1
-kind: Application
-metadata:
-  name: demo
-  namespace: argocd
-  annotations:
-    synology.proxy/enabled: "true"
-    synology.proxy/source-host: "demo.home.example.com"
-    synology.proxy/service-ref: "demo/demo"
-spec:
-  project: default
-  destination:
-    namespace: demo
-    server: https://kubernetes.default.svc
-  source:
-    repoURL: https://github.com/argoproj/argocd-example-apps
-    targetRevision: HEAD
-    path: guestbook
-EOF
+# Force re-reconcile
+kubectl annotate spr nginx-test -n synology-proxy-operator force-sync="$(date +%s)" --overwrite
+```
 
-# The ArgoCD watcher creates a SynologyProxyRule automatically
+### Scenario B — ArgoCD Application → auto-create SynologyProxyRule
+
+`hack/dev/03-argo-app.yaml` creates an ArgoCD Application annotated with `synology.proxy/enabled: "true"`. The ArgoCD watcher creates a `SynologyProxyRule` named `nginx-argo` automatically:
+
+```bash
 kubectl get spr -n synology-proxy-operator
-
-# Check it synced with DSM
-kubectl describe spr demo -n synology-proxy-operator
+kubectl describe spr nginx-argo -n synology-proxy-operator
 ```
 
----
-
-## 10. Test scenario C — Simulate deletion
+### Scenario C — Deletion
 
 ```bash
-# Delete the ArgoCD Application
-kubectl delete application demo -n argocd
-# → The owned SynologyProxyRule is garbage-collected
-# → The finalizer removes the DSM record before deletion completes
+# Delete the ArgoCD Application — the owned SynologyProxyRule is garbage-collected
+# and the finalizer removes the DSM record before deletion completes.
+kubectl delete application nginx-argo -n argocd
 
 kubectl get spr -n synology-proxy-operator   # should be gone within seconds
 ```
 
----
+### Scenario D — Manually-managed rule is not deleted
 
-## 11. Verify DSM records
-
-Log in to your Synology DSM and navigate to:
-
-**Control Panel → Application Portal → Reverse Proxy**
-
-You should see entries matching the `sourceHost` values, with the backend IP
-and certificate assigned as configured.
-
-Alternatively, query the DSM API directly:
+The ArgoCD watcher must NOT delete `SynologyProxyRule` objects it did not create
+(i.e. those without an owner reference). Verify:
 
 ```bash
-# Get all proxy records
-curl -sk "https://your-diskstation:5001/webapi/entry.cgi/SYNO.Core.AppPortal.ReverseProxy" \
-  -d "api=SYNO.Core.AppPortal.ReverseProxy&method=list&version=1&_sid=YOUR_SID" | jq .
+# The nginx-test rule has no owner reference
+kubectl get spr nginx-test -n synology-proxy-operator -o jsonpath='{.metadata.ownerReferences}'
+# → should be empty []
+
+# Disabling the annotation on the argo app should not touch nginx-test
+kubectl annotate application nginx-argo -n argocd synology.proxy/enabled=false --overwrite
+kubectl get spr nginx-test -n synology-proxy-operator   # must still exist
 ```
 
 ---
 
-## 12. Debugging tips
+## 9. Known DSM API behaviours
+
+| Behaviour | Details |
+|---|---|
+| **Write timeout** | Create/update calls can take up to 2 minutes. The client timeout is set to 3 minutes. |
+| **`SynoToken` required in body** | DSM 7.x CSRF protection requires the token in both the `X-SYNO-TOKEN` header and the form body for all mutating requests. Read-only calls (`list`) work without it. |
+| **Update method** | The correct method for updating a record is `update` (not `set`). The `_key` field returned by `list` must be included alongside `UUID`. |
+| **Certificate `list` not supported** | `SYNO.Core.Certificate.Service` does not support a `list` method. The operator always passes `old_id: ""` when assigning certificates. |
+| **Certificate fallback** | When no certificate CN/SAN matches the source hostname, the operator assigns the DSM default certificate (`is_default: true`). |
+| **Idempotency** | The operator compares the existing DSM record against the desired state before writing. If nothing changed, the DSM API is not called. |
+| **Cross-namespace owner refs** | ArgoCD Applications live in the `argocd` namespace while rules are created in `synology-proxy-operator`. Kubernetes disallows cross-namespace owner references; ownership is tracked via labels instead (`proxy.synology.io/managed-by-argo-app`). |
+
+---
+
+## 10. Inspect DSM proxy records
+
+Log in to your Synology DSM:
+**Control Panel → Application Portal → Reverse Proxy**
+
+Or query the API directly:
 
 ```bash
-# Operator logs (verbose)
-kubectl logs -n synology-proxy-operator deploy/synology-proxy-operator --follow
+# Authenticate first
+SID=$(curl -sk "https://$SYNOLOGY_URL/webapi/auth.cgi" \
+  -d "api=SYNO.API.Auth&version=3&method=login&account=$SYNOLOGY_USER&passwd=$SYNOLOGY_PASSWORD&session=test&format=sid" \
+  | jq -r '.data.sid')
+
+# List all proxy records
+curl -sk "https://$SYNOLOGY_URL/webapi/entry.cgi/SYNO.Core.AppPortal.ReverseProxy" \
+  -d "api=SYNO.Core.AppPortal.ReverseProxy&method=list&version=1&_sid=$SID" | jq '.data.entries[] | {description,frontend:.frontend.fqdn}'
+```
+
+---
+
+## 10. Debugging tips
+
+```bash
+# Operator logs (pretty-printed in dev mode)
+# (when running via make dev-run or VSCode)
 
 # Events on a rule
 kubectl describe spr <name> -n synology-proxy-operator
 
-# Force re-reconcile (touch the resource)
-kubectl annotate spr <name> -n synology-proxy-operator force-sync="$(date +%s)" --overwrite
+# Check RBAC
+kubectl auth can-i list applications \
+  --as=system:serviceaccount:synology-proxy-operator:synology-proxy-operator -n argocd
+kubectl auth can-i list services \
+  --as=system:serviceaccount:synology-proxy-operator:synology-proxy-operator --all-namespaces
 
-# Check RBAC (run-as)
-kubectl auth can-i list applications --as=system:serviceaccount:synology-proxy-operator:synology-proxy-operator -n argocd
-kubectl auth can-i list services --as=system:serviceaccount:synology-proxy-operator:synology-proxy-operator --all-namespaces
+# Inspect what the operator would send to DSM (set breakpoint in proxy.go:UpsertProxyRule)
+# or add temporary logging around the entryJSON marshal in proxy.go
 ```
 
 ---
 
-## 13. Tear down
+## 11. Tear down
 
 ```bash
-# Remove resources
-kubectl delete spr --all -n synology-proxy-operator
-helm uninstall synology-proxy-operator -n synology-proxy-operator
-kubectl delete -f config/crd/bases/
+# Remove test resources only
+make dev-clean
 
-# Delete the cluster
-kind delete cluster --name synology-test
+# Stop the cluster (preserves state)
+make minikube-stop
+
+# Delete the cluster entirely
+make minikube-delete
 ```

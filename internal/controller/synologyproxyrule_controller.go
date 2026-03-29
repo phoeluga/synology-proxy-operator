@@ -173,7 +173,7 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 	}
 
 	// --- Upsert record ---
-	uuid, hostnameChanged, err := r.SynologyClient.UpsertProxyRule(ctx, proxyRule)
+	uuid, written, err := r.SynologyClient.UpsertProxyRule(ctx, proxyRule)
 	if err != nil {
 		log.Error(err, "Failed to upsert proxy record")
 		r.setCondition(rule, proxyv1alpha1.ConditionSynced, metav1.ConditionFalse,
@@ -183,28 +183,39 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 	}
 
 	// --- Certificate assignment ---
+	// Always attempt assignment — AssignCertificate is idempotent and skips if
+	// the correct cert is already in place. Falls back to the DSM default cert
+	// when no specific match is found for the hostname.
 	assignCert := spec.AssignCertificate == nil || *spec.AssignCertificate
-	if assignCert && hostnameChanged && uuid != "" {
+	if assignCert && written && uuid != "" {
 		if err := r.SynologyClient.AssignCertificate(ctx, uuid, spec.SourceHost); err != nil {
 			log.Error(err, "Certificate assignment failed (non-fatal)", "hostname", spec.SourceHost)
-			// Non-fatal: log but don't fail reconciliation.
 		}
 	}
 
-	// --- Update status ---
-	now := metav1.Now()
-	rule.Status.UUID = uuid
-	rule.Status.Synced = true
-	rule.Status.LastSyncTime = &now
-	rule.Status.ResolvedDestinationHost = destHost
-	rule.Status.ResolvedDestinationPort = destPort
-	r.setCondition(rule, proxyv1alpha1.ConditionSynced, metav1.ConditionTrue,
-		proxyv1alpha1.ReasonSyncSuccess, "Proxy rule synced with Synology DSM")
-	r.setCondition(rule, proxyv1alpha1.ConditionReady, metav1.ConditionTrue,
-		proxyv1alpha1.ReasonSyncSuccess, "Backend discovered and proxy rule active")
+	// --- Update status (only when something changed) ---
+	// Avoid a spurious second reconcile: writing status triggers a watch event
+	// which re-enqueues the object. Skip the write if status is already current.
+	statusChanged := rule.Status.UUID != uuid ||
+		rule.Status.ResolvedDestinationHost != destHost ||
+		rule.Status.ResolvedDestinationPort != destPort ||
+		!rule.Status.Synced
 
-	if err := r.Status().Update(ctx, rule); err != nil {
-		return ctrl.Result{}, err
+	if statusChanged {
+		now := metav1.Now()
+		rule.Status.UUID = uuid
+		rule.Status.Synced = true
+		rule.Status.LastSyncTime = &now
+		rule.Status.ResolvedDestinationHost = destHost
+		rule.Status.ResolvedDestinationPort = destPort
+		r.setCondition(rule, proxyv1alpha1.ConditionSynced, metav1.ConditionTrue,
+			proxyv1alpha1.ReasonSyncSuccess, "Proxy rule synced with Synology DSM")
+		r.setCondition(rule, proxyv1alpha1.ConditionReady, metav1.ConditionTrue,
+			proxyv1alpha1.ReasonSyncSuccess, "Backend discovered and proxy rule active")
+
+		if err := r.Status().Update(ctx, rule); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	log.Info("Successfully reconciled proxy rule",

@@ -1,40 +1,56 @@
+---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: synology-proxy-operator-role
-  labels:
-    app.kubernetes.io/name: synology-proxy-operator
 rules:
-  # SynologyProxyRule CRUD + status
-  - apiGroups: ["proxy.synology.io"]
-    resources: ["synologyproxyrules"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["proxy.synology.io"]
-    resources: ["synologyproxyrules/status"]
-    verbs: ["get", "update", "patch"]
-  - apiGroups: ["proxy.synology.io"]
-    resources: ["synologyproxyrules/finalizers"]
-    verbs: ["update"]
-
-  # Watch ArgoCD Applications
-  - apiGroups: ["argoproj.io"]
-    resources: ["applications"]
-    verbs: ["get", "list", "watch"]
-
-  # Discover backend Services and Ingresses
-  - apiGroups: [""]
-    resources: ["services"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses"]
-    verbs: ["get", "list", "watch"]
-
-  # Leader election (leases)
-  - apiGroups: ["coordination.k8s.io"]
-    resources: ["leases"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-
-  # Events
-  - apiGroups: [""]
-    resources: ["events"]
-    verbs: ["create", "patch"]
+- apiGroups:
+  - ""
+  resources:
+  - services
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - argoproj.io
+  resources:
+  - applications
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - networking.k8s.io
+  resources:
+  - ingresses
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - proxy.synology.io
+  resources:
+  - synologyproxyrules
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - proxy.synology.io
+  resources:
+  - synologyproxyrules/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - proxy.synology.io
+  resources:
+  - synologyproxyrules/status
+  verbs:
+  - get
+  - patch
+  - update

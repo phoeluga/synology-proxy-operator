@@ -1,0 +1,37 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "minikube: set context",
+      "type": "shell",
+      "command": "minikube update-context --profile synology-dev",
+      "presentation": { "reveal": "silent", "panel": "shared" }
+    },
+    {
+      "label": "dev: install CRDs + RBAC",
+      "type": "shell",
+      "command": "make dev-install",
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "dev: deploy test app",
+      "type": "shell",
+      "command": "make dev-test-app",
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "go: build",
+      "type": "shell",
+      "command": "make build",
+      "group": { "kind": "build", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "shared" }
+    },
+    {
+      "label": "go: test",
+      "type": "shell",
+      "command": "make test",
+      "group": { "kind": "test", "isDefault": true },
+      "presentation": { "reveal": "always", "panel": "shared" }
+    }
+  ]
+}

@@ -1,0 +1,38 @@
+---
+# Minimal nginx deployment to act as a backend for proxy rule testing.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx
+  namespace: nginx-test
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+    spec:
+      containers:
+        - name: nginx
+          image: nginx:stable-alpine
+          ports:
+            - containerPort: 80
+---
+# LoadBalancer Service — minikube tunnel will assign an ExternalIP from 127.x.x.x.
+# The operator's serviceRef discovery uses this ExternalIP.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: nginx-test
+spec:
+  type: LoadBalancer
+  selector:
+    app: nginx
+  ports:
+    - name: http
+      port: 80
+      targetPort: 80

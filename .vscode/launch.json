@@ -1,0 +1,31 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      // Runs the operator locally against whatever cluster your kubeconfig points at.
+      // All config is read from .env.local via envFile — no need to duplicate flags here.
+      "name": "Run operator (local)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/main.go",
+      "envFile": "${workspaceFolder}/.env.local",
+      "args": [
+        "--zap-devel=true"
+      ]
+    },
+    {
+      // Same as above but switches kubectl context to the minikube dev cluster first.
+      "name": "Run operator (minikube)",
+      "type": "go",
+      "request": "launch",
+      "mode": "auto",
+      "program": "${workspaceFolder}/cmd/main.go",
+      "envFile": "${workspaceFolder}/.env.local",
+      "args": [
+        "--zap-devel=true"
+      ],
+      "preLaunchTask": "minikube: set context"
+    }
+  ]
+}
