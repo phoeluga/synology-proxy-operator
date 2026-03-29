@@ -5,6 +5,11 @@ on:
     tags:
       - "v*"
 
+# One release per tag — don't cancel if two tags are pushed simultaneously.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: ${{ github.repository }}
