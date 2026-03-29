@@ -39,7 +39,7 @@ operator:
 replicaCount: 1
 
 image:
-  repository: ghcr.io/synology-proxy-operator/synology-proxy-operator
+  repository: ghcr.io/phoeluga/synology-proxy-operator
   pullPolicy: IfNotPresent
   # Overrides the image tag. Defaults to the chart appVersion.
   tag: ""

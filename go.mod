@@ -1,4 +1,4 @@
-module github.com/synology-proxy-operator/synology-proxy-operator
+module github.com/phoeluga/synology-proxy-operator
 
 go 1.22.0
 

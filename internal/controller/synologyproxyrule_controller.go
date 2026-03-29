@@ -18,8 +18,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 
-	proxyv1alpha1 "github.com/synology-proxy-operator/synology-proxy-operator/api/v1alpha1"
-	"github.com/synology-proxy-operator/synology-proxy-operator/internal/synology"
+	proxyv1alpha1 "github.com/phoeluga/synology-proxy-operator/api/v1alpha1"
+	"github.com/phoeluga/synology-proxy-operator/internal/synology"
 )
 
 const (

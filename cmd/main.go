@@ -22,10 +22,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	proxyv1alpha1 "github.com/synology-proxy-operator/synology-proxy-operator/api/v1alpha1"
-	"github.com/synology-proxy-operator/synology-proxy-operator/internal/argo"
-	"github.com/synology-proxy-operator/synology-proxy-operator/internal/controller"
-	"github.com/synology-proxy-operator/synology-proxy-operator/internal/synology"
+	proxyv1alpha1 "github.com/phoeluga/synology-proxy-operator/api/v1alpha1"
+	"github.com/phoeluga/synology-proxy-operator/internal/argo"
+	"github.com/phoeluga/synology-proxy-operator/internal/controller"
+	"github.com/phoeluga/synology-proxy-operator/internal/synology"
 )
 
 var (
