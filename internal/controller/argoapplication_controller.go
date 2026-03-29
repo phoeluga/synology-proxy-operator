@@ -81,12 +81,13 @@ func (r *ArgoApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	// Only manage apps explicitly opted-in via annotation.
 	if !isProxyEnabled(app) {
-		// If there is an orphaned rule, clean it up.
-		return ctrl.Result{}, r.deleteRuleIfExists(ctx, log, ruleNameForApp(app))
+		// Clean up only rules this operator created (owner reference present).
+		// Rules created manually via resources.yaml are left untouched.
+		return ctrl.Result{}, r.deleteRuleIfExists(ctx, log, app)
 	}
 
 	if !app.DeletionTimestamp.IsZero() {
-		return ctrl.Result{}, r.deleteRuleIfExists(ctx, log, ruleNameForApp(app))
+		return ctrl.Result{}, r.deleteRuleIfExists(ctx, log, app)
 	}
 
 	return ctrl.Result{}, r.reconcileRule(ctx, log, app)
@@ -122,19 +123,27 @@ func (r *ArgoApplicationReconciler) reconcileRule(ctx context.Context, log logr.
 	return r.Update(ctx, existing)
 }
 
-// deleteRuleIfExists deletes a SynologyProxyRule if it exists.
-func (r *ArgoApplicationReconciler) deleteRuleIfExists(ctx context.Context, log logr.Logger, ruleName string) error {
-	ruleNS := r.RuleNamespace
+// deleteRuleIfExists deletes a SynologyProxyRule only if it was created by this
+// operator (i.e. carries an owner reference to the Application). Rules added
+// manually via resources.yaml have no such owner reference and are left alone.
+func (r *ArgoApplicationReconciler) deleteRuleIfExists(ctx context.Context, log logr.Logger, app *argo.Application) error {
 	rule := &proxyv1alpha1.SynologyProxyRule{}
-	err := r.Get(ctx, client.ObjectKey{Name: ruleName, Namespace: ruleNS}, rule)
+	err := r.Get(ctx, client.ObjectKey{Name: ruleNameForApp(app), Namespace: r.RuleNamespace}, rule)
 	if apierrors.IsNotFound(err) {
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	log.Info("Deleting SynologyProxyRule for removed/disabled Application", "rule", ruleName)
-	return r.Delete(ctx, rule)
+	if !metav1.IsControlledBy(rule, app) {
+		log.V(1).Info("SynologyProxyRule not owned by this Application, skipping delete", "rule", rule.Name)
+		return nil
+	}
+	log.Info("Deleting SynologyProxyRule for removed/disabled Application", "rule", rule.Name)
+	if err := r.Delete(ctx, rule); err != nil && !apierrors.IsNotFound(err) {
+		return err
+	}
+	return nil
 }
 
 // buildRule constructs the desired SynologyProxyRule from an ArgoCD Application.
