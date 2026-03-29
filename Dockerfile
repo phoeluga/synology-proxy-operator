@@ -1,12 +1,11 @@
 # syntax=docker/dockerfile:1
 
 # ─── Build stage ────────────────────────────────────────────────────────────
-FROM golang:1.22-alpine AS builder
+# Always build on the native runner platform (amd64).
+# TARGETARCH is injected by buildx and tells Go which arch to cross-compile for.
+FROM --platform=$BUILDPLATFORM golang:1.22-alpine AS builder
 
-# Declare the Docker build arg so buildx injects the target architecture.
-# This enables native Go cross-compilation instead of QEMU emulation,
-# making the arm64 build as fast as the amd64 build.
-ARG TARGETARCH=amd64
+ARG TARGETARCH
 
 WORKDIR /workspace
 
@@ -18,8 +17,6 @@ COPY api/       api/
 COPY cmd/       cmd/
 COPY internal/  internal/
 
-# Cross-compile for the target platform. CGO is disabled so no C toolchain
-# is needed for arm64, and the binary is fully static.
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} \
     go build -ldflags="-s -w" -o manager ./cmd/main.go
 
