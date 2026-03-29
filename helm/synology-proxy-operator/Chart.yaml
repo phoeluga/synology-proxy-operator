@@ -1,0 +1,18 @@
+apiVersion: v2
+name: synology-proxy-operator
+description: >
+  Kubernetes operator that automatically manages Synology DSM reverse proxy
+  records based on ArgoCD Applications and SynologyProxyRule CRDs.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+keywords:
+  - synology
+  - reverse-proxy
+  - operator
+  - argocd
+home: https://github.com/synology-proxy-operator/synology-proxy-operator
+sources:
+  - https://github.com/synology-proxy-operator/synology-proxy-operator
+maintainers:
+  - name: synology-proxy-operator maintainers

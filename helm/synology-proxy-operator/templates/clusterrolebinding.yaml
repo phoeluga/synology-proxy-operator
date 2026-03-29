@@ -1,0 +1,14 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "synology-proxy-operator.fullname" . }}-rolebinding
+  labels:
+    {{- include "synology-proxy-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "synology-proxy-operator.fullname" . }}-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "synology-proxy-operator.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}

@@ -1,0 +1,95 @@
+# ─── Synology DSM connection ─────────────────────────────────────────────────
+synology:
+  # URL to your Synology DSM (include port if non-standard)
+  url: "https://diskstation.local:5001"
+  # DSM username (dedicated account recommended; needs admin rights for App Portal)
+  username: ""
+  # DSM password — prefer existingSecret for production
+  password: ""
+  # Set to true if your DSM uses a self-signed certificate
+  skipTLSVerify: false
+  # Use an existing Kubernetes Secret instead of embedding credentials.
+  # The Secret must contain keys: SYNOLOGY_URL, SYNOLOGY_USER, SYNOLOGY_PASSWORD
+  existingSecret: ""
+
+# ─── Operator behaviour ───────────────────────────────────────────────────────
+operator:
+  # defaultDomain is appended to the ArgoCD Application name when no
+  # synology.proxy/source-host annotation is present.
+  # Example: "example.com" → app "myapp" gets sourceHost "myapp.example.com"
+  defaultDomain: ""
+
+  # defaultACLProfile is the Synology ACL profile applied to all rules
+  # that do not specify their own aclProfile.
+  defaultACLProfile: ""
+
+  # enableArgoWatcher enables the ArgoCD Application controller.
+  # Set to false if you only use SynologyProxyRule CRDs directly.
+  enableArgoWatcher: true
+
+  # watchNamespace restricts which namespace the ArgoCD Application watcher
+  # observes. Empty = all namespaces (requires cluster-wide RBAC).
+  watchNamespace: ""
+
+  # ruleNamespace is the namespace where auto-generated SynologyProxyRule
+  # objects are created.
+  ruleNamespace: "synology-proxy-operator"
+
+# ─── Deployment ───────────────────────────────────────────────────────────────
+replicaCount: 1
+
+image:
+  repository: ghcr.io/synology-proxy-operator/synology-proxy-operator
+  pullPolicy: IfNotPresent
+  # Overrides the image tag. Defaults to the chart appVersion.
+  tag: ""
+
+imagePullSecrets: []
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podLabels: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  limits:
+    cpu: 200m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+# Enable leader election when running multiple replicas.
+leaderElection: false
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ─── Metrics ─────────────────────────────────────────────────────────────────
+metrics:
+  enabled: true
+  service:
+    port: 8080
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+    scrapeTimeout: 10s
+
+# ─── CRD installation ────────────────────────────────────────────────────────
+# Set to false if you manage CRDs separately (e.g. via GitOps).
+installCRDs: true

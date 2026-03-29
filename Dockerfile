@@ -1,32 +1,29 @@
-# Build stage
-FROM golang:1.21-alpine AS builder
+# syntax=docker/dockerfile:1
+
+# ─── Build stage ────────────────────────────────────────────────────────────
+FROM golang:1.22-alpine AS builder
 
 WORKDIR /workspace
 
-# Install build dependencies
-RUN apk add --no-cache git ca-certificates
-
-# Copy go mod files
+# Cache module downloads before copying source.
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source code
-COPY main.go main.go
-COPY controllers/ controllers/
-COPY pkg/ pkg/
+COPY api/       api/
+COPY cmd/       cmd/
+COPY internal/  internal/
 
-# Build
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -ldflags="-w -s" -o manager main.go
+# Build with CGO disabled for a fully static binary.
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH:-amd64} \
+    go build -ldflags="-s -w" -o manager ./cmd/main.go
 
-# Runtime stage
+# ─── Runtime stage ──────────────────────────────────────────────────────────
 FROM gcr.io/distroless/static:nonroot
 
 WORKDIR /
 
-# Copy binary from builder
 COPY --from=builder /workspace/manager .
 
-# Use non-root user
 USER 65532:65532
 
 ENTRYPOINT ["/manager"]

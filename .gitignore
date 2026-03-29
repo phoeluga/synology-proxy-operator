@@ -1,50 +1,37 @@
-# Binaries for programs and plugins
-*.exe
-*.exe~
-*.dll
-*.so
-*.dylib
+# Binaries
 bin/
+dist/
 manager
 
-# Test binary, built with `go test -c`
+# Go build cache
 *.test
-
-# Output of the go coverage tool
 *.out
-coverage.html
+cover.out
 
-# Go workspace file
-go.work
+# Vendor (if not using modules)
+vendor/
 
 # IDE
-.vscode/
 .idea/
+.vscode/
 *.swp
 *.swo
-*~
 
-# OS
+# macOS
 .DS_Store
-Thumbs.db
-
-# Temporary files
-*.tmp
-*.bak
-*.log
-
-# Build artifacts
-dist/
-build/
 
 # Kubernetes
 kubeconfig
 *.kubeconfig
 
-# Helm
-charts/*/charts/
-charts/*/Chart.lock
-
-# Environment files
+# Secrets — never commit real credentials
+*.env
 .env
-.env.local
+secrets.yaml
+secret.yaml
+
+# Helm
+*.tgz
+
+# envtest binaries downloaded by setup-envtest
+bin/envtest/
