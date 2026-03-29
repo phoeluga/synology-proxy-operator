@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: synology-proxy-operator-config
+  namespace: synology-proxy-operator
+  labels:
+    app.kubernetes.io/name: synology-proxy-operator
+    app.kubernetes.io/component: controller
+data:
+  # DEFAULT_DOMAIN: domain suffix appended to the ArgoCD app name when no
+  # synology.proxy/source-host annotation is present.
+  # Example: "htronet.de" → app "myapp" → sourceHost "myapp.htronet.de"
+  DEFAULT_DOMAIN: ""
+
+  # DEFAULT_ACL_PROFILE: Synology ACL profile name applied to all rules that
+  # do not carry their own synology.proxy/acl-profile annotation.
+  # Leave empty to use no ACL profile (public access).
+  DEFAULT_ACL_PROFILE: ""
+
+  # RULE_NAMESPACE: namespace where auto-generated SynologyProxyRule objects
+  # are created by the ArgoCD Application watcher.
+  RULE_NAMESPACE: "synology-proxy-operator"
+
+  # ENABLE_ARGO_WATCHER: set to "false" to disable the ArgoCD Application
+  # watcher and manage SynologyProxyRule objects manually only.
+  ENABLE_ARGO_WATCHER: "true"

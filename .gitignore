@@ -1,7 +1,8 @@
 # Binaries
 bin/
 dist/
-manager
+# Built binary (not the config/ directory)
+bin/manager
 
 # Go build cache
 *.test

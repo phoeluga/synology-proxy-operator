@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: synology-proxy-operator
+  namespace: synology-proxy-operator
+  labels:
+    app.kubernetes.io/name: synology-proxy-operator
+    app.kubernetes.io/component: controller
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: synology-proxy-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: synology-proxy-operator
+    spec:
+      serviceAccountName: synology-proxy-operator
+      # Pull secret for private ghcr.io/phoeluga/synology-proxy-operator image.
+      # See credentials/ghcr-pull-secret.md for instructions on creating it.
+      imagePullSecrets:
+        - name: ghcr-pull-secret
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: manager
+          # Image is built and pushed by the release workflow to GHCR.
+          # Update the tag to pin a specific release; "latest" follows main.
+          image: ghcr.io/phoeluga/synology-proxy-operator:latest
+          imagePullPolicy: Always
+          args:
+            - "--leader-elect=false"
+            - "--metrics-bind-address=:8080"
+            - "--health-probe-bind-address=:8081"
+          env:
+            # ── Synology DSM credentials (from SealedSecret) ──────────────
+            - name: SYNOLOGY_URL
+              valueFrom:
+                secretKeyRef:
+                  name: synology-credentials
+                  key: url
+            - name: SYNOLOGY_USER
+              valueFrom:
+                secretKeyRef:
+                  name: synology-credentials
+                  key: username
+            - name: SYNOLOGY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: synology-credentials
+                  key: password
+            - name: SYNOLOGY_SKIP_TLS_VERIFY
+              valueFrom:
+                secretKeyRef:
+                  name: synology-credentials
+                  key: skipTLSVerify
+            # ── Operator behaviour (from ConfigMap) ───────────────────────
+            - name: DEFAULT_DOMAIN
+              valueFrom:
+                configMapKeyRef:
+                  name: synology-proxy-operator-config
+                  key: DEFAULT_DOMAIN
+            - name: DEFAULT_ACL_PROFILE
+              valueFrom:
+                configMapKeyRef:
+                  name: synology-proxy-operator-config
+                  key: DEFAULT_ACL_PROFILE
+            - name: RULE_NAMESPACE
+              valueFrom:
+                configMapKeyRef:
+                  name: synology-proxy-operator-config
+                  key: RULE_NAMESPACE
+            - name: ENABLE_ARGO_WATCHER
+              valueFrom:
+                configMapKeyRef:
+                  name: synology-proxy-operator-config
+                  key: ENABLE_ARGO_WATCHER
+          ports:
+            - name: metrics
+              containerPort: 8080
+            - name: health
+              containerPort: 8081
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: 8081
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            limits:
+              cpu: 200m
+              memory: 128Mi
+            requests:
+              cpu: 10m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+      terminationGracePeriodSeconds: 10

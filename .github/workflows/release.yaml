@@ -14,8 +14,9 @@ jobs:
     name: Build & Push Docker image + Helm chart
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-      packages: write
+      contents: write    # Create GitHub Release
+      packages: write    # Push to GHCR (private packages allowed)
+      id-token: write    # OIDC for signing (future use)
 
     steps:
       - uses: actions/checkout@v4
@@ -52,7 +53,8 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=sha
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=sha,prefix=sha-
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
@@ -69,11 +71,13 @@ jobs:
       - name: Set up Helm
         uses: azure/setup-helm@v4
 
-      - name: Update chart appVersion to match tag
+      - name: Update chart version to match tag
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           sed -i "s/^appVersion:.*/appVersion: \"${TAG}\"/" helm/synology-proxy-operator/Chart.yaml
           sed -i "s/^version:.*/version: ${TAG}/" helm/synology-proxy-operator/Chart.yaml
+          # Also update default image tag in values.yaml
+          sed -i "s|ghcr.io/phoeluga/synology-proxy-operator|${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}|" config/manager/deployment.yaml
 
       - name: Package Helm chart
         run: |
@@ -85,3 +89,6 @@ jobs:
         with:
           files: dist/*.tgz
           generate_release_notes: true
+          # Release is private by default for private repos.
+          # Set make_latest: true when you're ready to go public.
+          make_latest: "false"
