@@ -27,6 +27,11 @@ const (
 	requeueAfter  = 30 * time.Second
 )
 
+// annotationSourceHost is the annotation key on Service/Ingress objects that
+// overrides the auto-derived source hostname for a proxy record.
+// Value: full FQDN, e.g. "myapp.example.com"
+const annotationSourceHost = "synology.proxy/source-host"
+
 // SynologyProxyRuleReconciler reconciles SynologyProxyRule objects.
 // It is responsible for syncing each rule's desired state with the Synology DSM API.
 type SynologyProxyRuleReconciler struct {
@@ -36,6 +41,9 @@ type SynologyProxyRuleReconciler struct {
 	SynologyClient *synology.Client
 	// DefaultACLProfile is applied when spec.aclProfile is empty.
 	DefaultACLProfile string
+	// DefaultDomain is used to derive a source hostname when spec.sourceHost is empty.
+	// E.g. "example.com" → service "nginx" → "nginx.example.com".
+	DefaultDomain string
 }
 
 // +kubebuilder:rbac:groups=proxy.synology.io,resources=synologyproxyrules,verbs=get;list;watch;create;update;patch;delete
@@ -178,8 +186,18 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 		})
 	}
 
+	// --- Derive source hostname (may be auto-computed from Service/Ingress name + defaultDomain) ---
+	primarySourceHost, err := r.deriveSourceHost(ctx, rule)
+	if err != nil {
+		log.Error(err, "Cannot determine source hostname")
+		r.setCondition(rule, proxyv1alpha1.ConditionReady, metav1.ConditionFalse,
+			proxyv1alpha1.ReasonDiscoveryFailed, err.Error())
+		_ = r.Status().Update(ctx, rule)
+		return ctrl.Result{RequeueAfter: requeueAfter}, nil
+	}
+
 	// --- Build desired host→description mapping ---
-	// Primary host keeps the base description for backward compatibility.
+	// Primary host keeps the base description.
 	// Additional hosts get "<baseDesc>/<host>" so they're identifiable in the DSM UI.
 	baseDesc := r.descriptionFor(rule)
 	type hostEntry struct {
@@ -187,7 +205,7 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 		sourceHost string
 	}
 	allHosts := make([]hostEntry, 0, 1+len(spec.AdditionalSourceHosts))
-	allHosts = append(allHosts, hostEntry{baseDesc, spec.SourceHost})
+	allHosts = append(allHosts, hostEntry{baseDesc, primarySourceHost})
 	for _, h := range spec.AdditionalSourceHosts {
 		allHosts = append(allHosts, hostEntry{baseDesc + "/" + h, h})
 	}
@@ -261,7 +279,7 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 	}
 
 	log.Info("Successfully reconciled proxy rule",
-		"sourceHost", spec.SourceHost,
+		"sourceHost", primarySourceHost,
 		"additionalHosts", len(spec.AdditionalSourceHosts),
 		"destination", fmt.Sprintf("%s:%d", destHost, destPort),
 		"records", len(managedRecords))
@@ -390,6 +408,61 @@ func (r *SynologyProxyRuleReconciler) descriptionFor(rule *proxyv1alpha1.Synolog
 		return rule.Spec.Description
 	}
 	return rule.Name
+}
+
+// deriveSourceHost returns the source hostname for a rule.
+// When spec.sourceHost is set it is returned as-is.
+// Otherwise the hostname is derived in priority order:
+//  1. synology.proxy/source-host annotation on the referenced Service or Ingress
+//  2. <name>.<defaultDomain> where name is the Service/Ingress/rule name
+//  3. Error if defaultDomain is also empty
+func (r *SynologyProxyRuleReconciler) deriveSourceHost(ctx context.Context, rule *proxyv1alpha1.SynologyProxyRule) (string, error) {
+	if rule.Spec.SourceHost != "" {
+		return rule.Spec.SourceHost, nil
+	}
+
+	ns := rule.Namespace
+
+	if ref := rule.Spec.ServiceRef; ref != nil {
+		svcNS := ref.Namespace
+		if svcNS == "" {
+			svcNS = ns
+		}
+		svc := &corev1.Service{}
+		if err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: svcNS}, svc); err == nil {
+			if h := svc.Annotations[annotationSourceHost]; h != "" {
+				return h, nil
+			}
+			if r.DefaultDomain != "" {
+				return fmt.Sprintf("%s.%s", svc.Name, r.DefaultDomain), nil
+			}
+		}
+	}
+
+	if ref := rule.Spec.IngressRef; ref != nil {
+		ingNS := ref.Namespace
+		if ingNS == "" {
+			ingNS = ns
+		}
+		ing := &networkingv1.Ingress{}
+		if err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ingNS}, ing); err == nil {
+			if h := ing.Annotations[annotationSourceHost]; h != "" {
+				return h, nil
+			}
+			if r.DefaultDomain != "" {
+				return fmt.Sprintf("%s.%s", ing.Name, r.DefaultDomain), nil
+			}
+		}
+	}
+
+	// Fall back to rule name + default domain.
+	if r.DefaultDomain != "" {
+		return fmt.Sprintf("%s.%s", rule.Name, r.DefaultDomain), nil
+	}
+
+	return "", fmt.Errorf("spec.sourceHost is empty and no defaultDomain is configured; " +
+		"set spec.sourceHost, add a synology.proxy/source-host annotation on the Service/Ingress, " +
+		"or configure DEFAULT_DOMAIN on the operator")
 }
 
 // setCondition updates or appends a condition on the rule's status.

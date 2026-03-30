@@ -123,6 +123,7 @@ func main() {
 		Log:               ctrl.Log.WithName("controllers").WithName("SynologyProxyRule"),
 		SynologyClient:    synClient,
 		DefaultACLProfile: defaultACLProfile,
+		DefaultDomain:     defaultDomain,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Unable to create SynologyProxyRule controller")
 		os.Exit(1)

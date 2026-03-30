@@ -7,8 +7,11 @@ import (
 // SynologyProxyRuleSpec defines the desired state of a reverse proxy rule on Synology DSM.
 type SynologyProxyRuleSpec struct {
 	// SourceHost is the primary public FQDN that the reverse proxy will listen on (frontend).
-	// +kubebuilder:validation:Required
-	SourceHost string `json:"sourceHost"`
+	// When empty the operator derives the hostname from the referenced Service or Ingress name
+	// combined with the operator's configured defaultDomain (e.g. "nginx.example.com").
+	// The annotation synology.proxy/source-host on the Service or Ingress overrides the derived name.
+	// +optional
+	SourceHost string `json:"sourceHost,omitempty"`
 
 	// AdditionalSourceHosts lists extra public FQDNs that should each get their own
 	// DSM reverse proxy record pointing at the same backend.

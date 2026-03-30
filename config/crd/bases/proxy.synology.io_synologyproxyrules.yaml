@@ -159,8 +159,11 @@ spec:
                 - name
                 type: object
               sourceHost:
-                description: SourceHost is the primary public FQDN that the reverse
-                  proxy will listen on (frontend).
+                description: |-
+                  SourceHost is the primary public FQDN that the reverse proxy will listen on (frontend).
+                  When empty the operator derives the hostname from the referenced Service or Ingress name
+                  combined with the operator's configured defaultDomain (e.g. "nginx.example.com").
+                  The annotation synology.proxy/source-host on the Service or Ingress overrides the derived name.
                 type: string
               sourcePort:
                 default: 443
@@ -184,8 +187,6 @@ spec:
                     description: Send timeout in seconds. Defaults to 60.
                     type: integer
                 type: object
-            required:
-            - sourceHost
             type: object
           status:
             description: SynologyProxyRuleStatus defines the observed state of SynologyProxyRule.
