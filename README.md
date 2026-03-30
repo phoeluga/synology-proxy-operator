@@ -1,7 +1,7 @@
 # Synology Proxy Operator
 
-> **Deploy an app. Get a public hostname. Automatically.**
-> No more clicking through Synology DSM menus every time something changes in your cluster.
+> **Deploy an app. Get a working HTTPS hostname. Automatically.**
+> No DNS config. No reverse proxy setup. No certificate assignment. Just deploy.
 
 [![CI](https://github.com/phoeluga/synology-proxy-operator/actions/workflows/ci.yaml/badge.svg)](https://github.com/phoeluga/synology-proxy-operator/actions/workflows/ci.yaml)
 [![Release](https://img.shields.io/github/v/release/phoeluga/synology-proxy-operator)](https://github.com/phoeluga/synology-proxy-operator/releases)
@@ -10,11 +10,11 @@
 
 ---
 
-You have a Synology NAS acting as your home lab's gateway. Every time you deploy a new service to Kubernetes, you open DSM, navigate to the reverse proxy settings, fill in the hostname, the backend IP, the port, assign a certificate — and repeat for the next service, and the next.
+You have a Synology NAS acting as your home lab's gateway. Every time you deploy a new service to Kubernetes, you open DSM, navigate to the reverse proxy settings, fill in the hostname, the backend IP, the port, assign a certificate — then go to your DNS server and add an A record. And repeat for the next service, and the next.
 
-When a LoadBalancer IP changes, you update it manually. When you remove an app, you remember (or forget) to clean up the DSM rule.
+When a LoadBalancer IP changes, you update it manually. When you remove an app, you remember (or forget) to clean up the DSM rule and the DNS entry.
 
-**Synology Proxy Operator eliminates all of that.** It watches your Kubernetes cluster and keeps your Synology DSM reverse proxy configuration in sync — automatically, with TLS certificate assignment and zero manual steps.
+**Synology Proxy Operator eliminates all of that.** It watches your Kubernetes cluster and keeps your Synology DSM reverse proxy configuration in sync — automatically. When paired with Synology DNS Server, even the DNS record is created for you.
 
 ---
 
@@ -60,12 +60,56 @@ The first two controllers are purely Kubernetes-side. All DSM interaction flows 
 
 ---
 
+## Zero-touch DNS — how it all fits together
+
+When the operator creates a reverse proxy rule in DSM, the Synology **DNS Server** package automatically registers a matching DNS A record for the hostname — pointing to your NAS. No manual DNS entry required.
+
+Pair this with the following DNS chain for a fully automated home lab setup:
+
+```mermaid
+flowchart LR
+    client["Client\n(browser, app)"]
+
+    subgraph homelab["Home Lab"]
+        pihole["Pi-hole\n―――――――――\nAd blocking +\nlocal DNS resolver"]
+        synodns["Synology DNS Server\n―――――――――\nAuto-registers hostnames\nfrom reverse proxy rules"]
+        synoproxy["Synology Reverse Proxy\n―――――――――\nRoutes by hostname\nto Kubernetes services"]
+    end
+
+    cloudflare["Cloudflare 1.1.1.1\n(or any public DNS)"]
+
+    client -->|"DNS query"| pihole
+    pihole -->|"unknown domain →\nforward upstream"| synodns
+    synodns -->|"unknown domain →\nforward upstream"| cloudflare
+    client -->|"HTTPS request"| synoproxy
+```
+
+**How it works end-to-end:**
+
+1. You deploy an app to Kubernetes — the operator creates a DSM reverse proxy rule for `myapp.home.example.com`
+2. Synology DNS Server automatically adds an A record: `myapp.home.example.com → <NAS IP>`
+3. Pi-hole forwards unknown queries to Synology DNS → resolves all your local hostnames
+4. Synology DNS forwards everything else to Cloudflare → external domains work normally
+5. HTTPS request hits the NAS, reverse proxy routes to the correct Kubernetes service
+
+**Result:** deploy an app, get a working HTTPS hostname — no DNS config, no manual steps.
+
+> **Setup checklist:**
+> - Install **Synology DNS Server** package in DSM Package Center
+> - Configure Synology DNS Server upstream: `1.1.1.1` (Cloudflare) or `8.8.8.8` (Google)
+> - Set Pi-hole upstream DNS to your NAS IP (port 53)
+> - Set `DEFAULT_DOMAIN` in the operator to your local domain (e.g. `home.example.com`)
+> - Ensure your router's DHCP hands out Pi-hole as the DNS server for all clients
+
+---
+
 ## Prerequisites
 
 | Requirement | Version |
 |---|---|
 | Synology DSM | ≥ 7.0 (WebAPI access required) |
 | Kubernetes | ≥ 1.28 |
+| Synology DNS Server | optional — enables automatic DNS record creation |
 | ArgoCD | ≥ 2.8 — optional, only for the ArgoCD watcher |
 
 ---
