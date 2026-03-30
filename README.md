@@ -1,77 +1,215 @@
 # Synology Proxy Operator
 
-A Kubernetes operator that automatically manages **Synology DSM reverse proxy records** based on ArgoCD Applications and `SynologyProxyRule` custom resources.
+A Kubernetes operator that automatically manages **Synology DSM reverse proxy records**.
+It watches ArgoCD Applications, annotated Services/Ingresses, and manual `SynologyProxyRule`
+custom resources — and keeps the corresponding DSM configuration in sync.
+
+---
+
+## Table of contents
+
+- [How it works](#how-it-works)
+- [Prerequisites](#prerequisites)
+- [Installation](#installation)
+- [Configuration](#configuration)
+- [Usage modes](#usage-modes)
+  - [Mode 1 — Annotate a Service or Ingress](#mode-1--annotate-a-service-or-ingress)
+  - [Mode 2 — Annotate an ArgoCD Application](#mode-2--annotate-an-argocd-application)
+  - [Mode 3 — Manual SynologyProxyRule](#mode-3--manual-synologyproxyrule)
+- [Hostname derivation](#hostname-derivation)
+- [Certificate assignment](#certificate-assignment)
+- [Annotation reference](#annotation-reference)
+- [SynologyProxyRule CRD reference](#synologyproxyrule-crd-reference)
+- [Status and observability](#status-and-observability)
+- [Helm values reference](#helm-values-reference)
+- [Development](#development)
+- [Release](#release)
+- [Project structure](#project-structure)
+
+---
 
 ## How it works
 
 ```
-ArgoCD Application  ──annotation──▶  ArgoApplicationReconciler
-                                             │
-                                             ▼
-                                    SynologyProxyRule CRD
-                                             │
-                                             ▼
-                              SynologyProxyRuleReconciler
-                                             │
-                          ┌──────────────────┼──────────────────┐
-                          ▼                  ▼                  ▼
-                  Discover backend    Upsert DSM proxy    Assign cert
-                  (Service/Ingress)   record via API      (wildcard/SAN)
+Service/Ingress  ──annotation──▶  ServiceIngressReconciler ──▶┐
+ArgoCD App       ──annotation──▶  ArgoApplicationReconciler ──▶┤
+Manual resource                                                 │
+                                                                ▼
+                                                   SynologyProxyRule CRD
+                                                                │
+                                                                ▼
+                                              SynologyProxyRuleReconciler
+                                                                │
+                                    ┌───────────────────────────┼───────────────────────────┐
+                                    ▼                           ▼                           ▼
+                            Discover backend           Upsert DSM proxy            Assign certificate
+                            (Service/Ingress IP)       record via WebAPI           (wildcard/SAN match
+                                                                                   or DSM default)
 ```
 
-1. **ArgoCD watcher** — watches ArgoCD `Application` objects annotated with `synology.proxy/enabled: "true"`.  For each such app it creates or updates a `SynologyProxyRule` CRD in the configured namespace, auto-populating source hostname, backend reference, and ACL profile from annotations and defaults.
+The operator runs three controllers:
 
-2. **Proxy rule reconciler** — watches `SynologyProxyRule` CRDs.  For each rule it:
-   - Auto-discovers the backend IP / port from a `LoadBalancer` Service or `Ingress` (or uses explicit values).
-   - Resolves the ACL profile UUID from DSM.
-   - Creates or updates the reverse proxy entry in Synology DSM via the WebAPI.
-   - Assigns the best matching wildcard/SAN certificate.
-   - Updates `.status` with the DSM UUID and sync result.
+| Controller | Watches | Creates |
+|---|---|---|
+| `ServiceIngressReconciler` | Services + Ingresses with `synology.proxy/enabled: "true"` | `SynologyProxyRule` objects |
+| `ArgoApplicationReconciler` | ArgoCD `Application` objects with `synology.proxy/enabled: "true"` | `SynologyProxyRule` objects |
+| `SynologyProxyRuleReconciler` | All `SynologyProxyRule` objects | DSM reverse proxy records |
 
-You can also create `SynologyProxyRule` objects **directly**, without ArgoCD.
+The `SynologyProxyRuleReconciler` is the single point that talks to DSM — the other two
+controllers just produce and maintain `SynologyProxyRule` resources.
 
 ---
 
 ## Prerequisites
 
-| Tool | Version | Notes |
-|------|---------|-------|
-| Go | ≥ 1.22 | Build only |
-| Docker or Podman | ≥ 24 / ≥ 4 | Image builds |
-| kubectl | ≥ 1.28 | |
-| Helm | ≥ 3.14 | |
-| minikube | ≥ 1.32 | Local dev cluster |
-| ArgoCD | ≥ 2.8 | Optional |
+| Requirement | Notes |
+|---|---|
+| Synology DSM ≥ 7.0 | WebAPI access required |
+| Kubernetes ≥ 1.28 | |
+| ArgoCD ≥ 2.8 | Optional — only needed for the ArgoCD watcher |
 
 ---
 
-## Quick start (Helm)
+## Installation
+
+### Helm (recommended)
 
 ```bash
 helm upgrade --install synology-proxy-operator \
-  oci://ghcr.io/synology-proxy-operator/charts/synology-proxy-operator \
+  oci://ghcr.io/phoeluga/charts/synology-proxy-operator \
   --namespace synology-proxy-operator \
   --create-namespace \
-  --set synology.url="https://diskstation.local:5001" \
+  --set synology.url="https://192.168.1.x:5001" \
   --set synology.username="admin" \
   --set synology.password="secret" \
   --set synology.skipTLSVerify=true \
   --set operator.defaultDomain="home.example.com"
 ```
 
-After installation, annotate an ArgoCD Application:
+### GitOps (ArgoCD multi-source)
 
 ```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
 metadata:
-  annotations:
-    synology.proxy/enabled: "true"
-    # Optional overrides:
-    synology.proxy/source-host: "myapp.home.example.com"
-    synology.proxy/acl-profile: "LAN Only"
-    synology.proxy/service-ref: "myapp/myapp-svc"
+  name: synology-proxy-operator
+  namespace: argocd
+spec:
+  sources:
+    - repoURL: https://github.com/phoeluga/synology-proxy-operator
+      path: config
+      targetRevision: main
+    - repoURL: https://github.com/your-org/your-cluster-repo
+      path: clusters/prod/infrastructure/synology-proxy-operator/credentials
+      targetRevision: HEAD
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: synology-proxy-operator
 ```
 
-Or create a rule directly:
+The `credentials/` directory should contain a Secret (or SealedSecret) with keys:
+`url`, `username`, `password`, `skipTLSVerify`.
+
+---
+
+## Configuration
+
+All configuration is read from environment variables. When deployed via Helm these are
+set automatically from `values.yaml`. When running locally, put them in `.env.local`.
+
+| Variable | Description | Default |
+|---|---|---|
+| `SYNOLOGY_URL` | DSM base URL, e.g. `https://192.168.1.x:5001` | required |
+| `SYNOLOGY_USER` | DSM username | required |
+| `SYNOLOGY_PASSWORD` | DSM password | required |
+| `SYNOLOGY_SKIP_TLS_VERIFY` | Skip TLS verification (self-signed certs) | `false` |
+| `DEFAULT_DOMAIN` | Domain appended to auto-derived hostnames, e.g. `home.example.com` | `""` |
+| `DEFAULT_ACL_PROFILE` | ACL profile name applied when none is specified on a rule | `""` |
+| `RULE_NAMESPACE` | Namespace where auto-created `SynologyProxyRule` objects are placed | `synology-proxy-operator` |
+| `ENABLE_ARGO_WATCHER` | Enable the ArgoCD Application watcher | `true` |
+| `WATCH_NAMESPACE` | Restrict ArgoCD watcher to a single namespace (empty = all) | `""` |
+
+---
+
+## Usage modes
+
+### Mode 1 — Annotate a Service or Ingress
+
+The simplest approach: add `synology.proxy/enabled: "true"` to any existing Service
+or Ingress. The operator automatically creates a `SynologyProxyRule` and a DSM record.
+
+**Example — LoadBalancer Service:**
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: nginx
+  namespace: myapp
+  annotations:
+    synology.proxy/enabled: "true"
+    # Optional — if omitted, hostname is derived as "<service-name>.<DEFAULT_DOMAIN>"
+    synology.proxy/source-host: "nginx.home.example.com"
+spec:
+  type: LoadBalancer
+  ports:
+    - port: 80
+```
+
+With `DEFAULT_DOMAIN=home.example.com` configured, the annotation `synology.proxy/source-host`
+is not needed — the operator derives `nginx.home.example.com` automatically.
+
+**Example — Ingress:**
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: myapp
+  namespace: myapp
+  annotations:
+    synology.proxy/enabled: "true"
+    synology.proxy/destination-protocol: "https"
+    synology.proxy/acl-profile: "LAN Only"
+```
+
+Removing the `synology.proxy/enabled` annotation (or deleting the object) removes
+the DSM record automatically.
+
+---
+
+### Mode 2 — Annotate an ArgoCD Application
+
+When using ArgoCD, annotate the `Application` object instead of individual Services.
+The operator creates a `SynologyProxyRule` that auto-discovers the backend from the
+application's destination namespace.
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: myapp
+  namespace: argocd
+  annotations:
+    synology.proxy/enabled: "true"
+    # Optional — defaults to "<app-name>.<DEFAULT_DOMAIN>"
+    synology.proxy/source-host: "myapp.home.example.com"
+    synology.proxy/service-ref: "myapp/myapp-svc"
+    synology.proxy/acl-profile: "LAN Only"
+spec:
+  destination:
+    namespace: myapp
+    server: https://kubernetes.default.svc
+```
+
+---
+
+### Mode 3 — Manual SynologyProxyRule
+
+Create a `SynologyProxyRule` directly for full control. Useful for services not managed
+by ArgoCD and not running in Kubernetes (e.g. a VM or NAS service).
+
+**Minimum (with `DEFAULT_DOMAIN` configured):**
 
 ```yaml
 apiVersion: proxy.synology.io/v1alpha1
@@ -80,28 +218,93 @@ metadata:
   name: myapp
   namespace: synology-proxy-operator
 spec:
-  sourceHost: myapp.home.example.com
   serviceRef:
-    name: myapp-svc
+    name: myapp
     namespace: myapp
-  aclProfile: "LAN Only"
+```
+
+This creates a DSM record for `myapp.home.example.com` pointing at the LoadBalancer IP
+of the `myapp` service.
+
+**Explicit (no auto-discovery):**
+
+```yaml
+apiVersion: proxy.synology.io/v1alpha1
+kind: SynologyProxyRule
+metadata:
+  name: nas-photos
+  namespace: synology-proxy-operator
+spec:
+  sourceHost: photos.home.example.com
+  destinationHost: 192.168.1.100
+  destinationPort: 8080
+  destinationProtocol: http
+  assignCertificate: true
+```
+
+**Multiple frontend hostnames (one backend, multiple DSM records):**
+
+```yaml
+spec:
+  sourceHost: myapp.home.example.com
+  additionalSourceHosts:
+    - myapp.example.org
+  serviceRef:
+    name: myapp
+    namespace: myapp
 ```
 
 ---
 
-## ArgoCD Application annotations
+## Hostname derivation
+
+When `spec.sourceHost` is empty (or not set), the operator derives the hostname:
+
+1. **`synology.proxy/source-host` annotation** on the referenced Service or Ingress — used as-is
+2. **`<objectName>.<DEFAULT_DOMAIN>`** — e.g. `nginx.home.example.com`
+3. **`<ruleName>.<DEFAULT_DOMAIN>`** — fallback when no ServiceRef/IngressRef is set
+4. **Error** if `DEFAULT_DOMAIN` is also not configured
+
+This applies to all three usage modes:
+
+| Mode | Name used |
+|---|---|
+| Service/Ingress annotation | service or ingress name |
+| ArgoCD Application | application name |
+| Manual SynologyProxyRule | rule name or serviceRef/ingressRef name |
+
+---
+
+## Certificate assignment
+
+When `spec.assignCertificate: true` (the default), the operator assigns a certificate
+to each DSM proxy record after creation or update.
+
+**Selection logic:**
+
+1. Find a certificate in DSM whose CN or SAN matches the source hostname (wildcard patterns like `*.example.com` are supported)
+2. If no match is found, assign the DSM **default certificate** (`is_default: true`)
+
+The assignment only calls the DSM API when the proxy record was just created or updated —
+not on every reconcile.
+
+---
+
+## Annotation reference
+
+These annotations are supported on **Services**, **Ingresses**, and **ArgoCD Applications**:
 
 | Annotation | Description | Default |
 |---|---|---|
-| `synology.proxy/enabled` | `"true"` to enable proxy management | (required) |
-| `synology.proxy/source-host` | Public FQDN for the frontend | `<app-name>.<defaultDomain>` |
-| `synology.proxy/acl-profile` | Synology ACL profile name | operator default |
-| `synology.proxy/destination-protocol` | `http` or `https` | `http` |
-| `synology.proxy/destination-host` | Backend IP/hostname override | auto-discovered |
-| `synology.proxy/destination-port` | Backend port override | auto-discovered |
-| `synology.proxy/assign-certificate` | `"false"` to skip cert assignment | `"true"` |
-| `synology.proxy/service-ref` | `<namespace>/<service>` for discovery | auto-scan |
-| `synology.proxy/ingress-ref` | `<namespace>/<ingress>` for discovery | auto-scan |
+| `synology.proxy/enabled` | `"true"` to enable proxy management | — (required) |
+| `synology.proxy/source-host` | Public FQDN override | derived from name + domain |
+| `synology.proxy/acl-profile` | Synology ACL profile name | `DEFAULT_ACL_PROFILE` |
+| `synology.proxy/destination-protocol` | Backend protocol: `http` or `https` | `http` |
+| `synology.proxy/destination-host` | Backend IP/hostname override (ArgoCD only) | auto-discovered |
+| `synology.proxy/destination-port` | Backend port override (ArgoCD only) | auto-discovered |
+| `synology.proxy/assign-certificate` | `"false"` to skip certificate assignment | `"true"` |
+| `synology.proxy/service-ref` | `<namespace>/<name>` — Service to use for discovery (ArgoCD only) | auto-scan |
+| `synology.proxy/ingress-ref` | `<namespace>/<name>` — Ingress to use for discovery (ArgoCD only) | auto-scan |
 
 ---
 
@@ -114,29 +317,39 @@ metadata:
   name: myapp
   namespace: synology-proxy-operator
 spec:
-  # ── Required ────────────────────────────────────────
-  sourceHost: myapp.home.example.com   # Public FQDN (frontend)
+  # ── Frontend hostnames ────────────────────────────────────────────────────
+  # sourceHost is optional when DEFAULT_DOMAIN is configured.
+  sourceHost: myapp.home.example.com
 
-  # ── Optional: source ────────────────────────────────
-  sourcePort: 443                      # Default: 443
+  # Additional hostnames — each gets its own DSM record and certificate.
+  additionalSourceHosts:
+    - myapp.example.org
 
-  # ── Optional: backend ────────────────────────────────
-  destinationHost: ""                  # Auto-discovered when empty
-  destinationPort: 0                   # Auto-discovered when 0
-  destinationProtocol: http            # http (default) | https
+  sourcePort: 443               # Default: 443
 
-  # ── Optional: backend auto-discovery ─────────────────
+  # ── Backend ───────────────────────────────────────────────────────────────
+  # Set explicitly or let the operator discover from serviceRef / ingressRef.
+  destinationHost: ""           # Auto-discovered when empty
+  destinationPort: 0            # Auto-discovered when 0
+  destinationProtocol: http     # http (default) | https
+
+  # ── Backend auto-discovery ────────────────────────────────────────────────
+  # The operator reads the LoadBalancer ExternalIP from the referenced Service,
+  # or the status IP from the referenced Ingress.
   serviceRef:
-    name: myapp-svc
-    namespace: myapp                   # Defaults to rule namespace
+    name: myapp
+    namespace: myapp            # Defaults to rule namespace when omitted
+
   ingressRef:
     name: myapp-ingress
     namespace: myapp
 
-  # ── Optional: Synology config ─────────────────────────
-  aclProfile: "LAN Only"
-  assignCertificate: true
+  # ── Synology DSM settings ─────────────────────────────────────────────────
+  aclProfile: "LAN Only"        # DSM Access Control profile name
+  assignCertificate: true       # Auto-assign matching certificate
 
+  # Custom HTTP headers forwarded to the backend.
+  # Defaults to WebSocket upgrade headers when omitted.
   customHeaders:
     - name: Upgrade
       value: $http_upgrade
@@ -144,38 +357,79 @@ spec:
       value: $connection_upgrade
 
   timeouts:
-    connect: 60
+    connect: 60                 # seconds
     read:    60
     send:    60
+
+  # ── Internal fields (set automatically) ───────────────────────────────────
+  description: myapp            # DSM record label. Defaults to .metadata.name
+  managedByApp: myapp           # Set by ArgoCD watcher — do not set manually
 ```
 
-### Status fields
+### Backend discovery priority
+
+When `destinationHost`/`destinationPort` are not set:
+
+1. `serviceRef` — uses the `ExternalIP` of the referenced LoadBalancer Service
+2. `ingressRef` — uses the status IP of the referenced Ingress
+3. Auto-scan — finds any LoadBalancer Service in the rule's namespace with an ExternalIP
+
+---
+
+## Status and observability
+
+```bash
+kubectl get spr -n synology-proxy-operator
+```
 
 ```
-kubectl get spr -A
+NAME     SOURCE HOST              DESTINATION     SYNCED   RECORDS   AGE
+myapp    myapp.home.example.com   192.168.1.100   true     1         5m
+```
 
-NAMESPACE                  NAME     SOURCE HOST                  DESTINATION     SYNCED  UUID          AGE
-synology-proxy-operator    myapp    myapp.home.example.com       192.168.1.100   true    abc-def-123   5m
+```bash
+kubectl describe spr myapp -n synology-proxy-operator
+```
+
+Key status fields:
+
+| Field | Description |
+|---|---|
+| `status.synced` | `true` when last DSM sync succeeded |
+| `status.managedRecords` | List of all DSM records managed by this rule (one per source host) |
+| `status.managedRecords[].uuid` | DSM UUID of the record |
+| `status.managedRecords[].sourceHost` | Frontend hostname of this record |
+| `status.resolvedDestinationHost` | Backend IP/hostname discovered |
+| `status.resolvedDestinationPort` | Backend port discovered |
+| `status.lastSyncTime` | Timestamp of last successful sync |
+| `status.conditions[Synced]` | Standard Kubernetes condition |
+| `status.conditions[Ready]` | True when backend is discovered and rule is active |
+
+**Force re-reconcile:**
+
+```bash
+kubectl annotate spr myapp -n synology-proxy-operator \
+  force-sync="$(date +%s)" --overwrite
 ```
 
 ---
 
-## Configuration reference (Helm values)
+## Helm values reference
 
 | Value | Description | Default |
 |---|---|---|
 | `synology.url` | DSM base URL | `""` |
 | `synology.username` | DSM username | `""` |
 | `synology.password` | DSM password | `""` |
-| `synology.skipTLSVerify` | Skip TLS check | `false` |
-| `synology.existingSecret` | Use existing Secret for credentials | `""` |
-| `operator.defaultDomain` | Domain suffix for auto-generated hostnames | `""` |
-| `operator.defaultACLProfile` | Default ACL profile applied to all rules | `""` |
+| `synology.skipTLSVerify` | Skip TLS certificate check | `false` |
+| `synology.existingSecret` | Name of an existing Secret with DSM credentials | `""` |
+| `operator.defaultDomain` | Domain suffix for auto-derived hostnames | `""` |
+| `operator.defaultACLProfile` | ACL profile applied when none is specified | `""` |
 | `operator.enableArgoWatcher` | Enable ArgoCD Application watcher | `true` |
-| `operator.watchNamespace` | Namespace to watch for ArgoCD Apps | `""` (all) |
+| `operator.watchNamespace` | Restrict ArgoCD watcher to one namespace | `""` (all) |
 | `operator.ruleNamespace` | Namespace for auto-created `SynologyProxyRule` objects | `synology-proxy-operator` |
 | `installCRDs` | Install CRDs via Helm | `true` |
-| `leaderElection` | Enable leader election (for HA) | `false` |
+| `leaderElection` | Enable leader election for HA deployments | `false` |
 
 ---
 
@@ -186,25 +440,22 @@ synology-proxy-operator    myapp    myapp.home.example.com       192.168.1.100  
 | Tool | Install |
 |---|---|
 | Go ≥ 1.22 | `brew install go` |
+| Docker | Docker Desktop |
 | minikube | `brew install minikube` |
-| Podman or Docker | `brew install podman` / Docker Desktop |
 | kubectl | `brew install kubectl` |
 | Helm | `brew install helm` |
 
 ```bash
-# Install controller-gen locally
-make controller-gen
-
-# Download module dependencies
+make controller-gen   # install controller-gen locally
 go mod tidy
 ```
 
-### Build
+### Build and test
 
 ```bash
-make build    # compile binary to bin/manager
-make lint     # run golangci-lint
-make test     # run unit tests with envtest
+make build    # compile binary → bin/manager
+make lint     # golangci-lint
+make test     # unit tests with envtest
 ```
 
 ### Container image
@@ -213,8 +464,8 @@ make test     # run unit tests with envtest
 # Build with Docker (default) or Podman
 make image-build CONTAINER_TOOL=podman IMG=synology-proxy-operator:dev
 
-# Multi-arch push (Docker buildx only)
-make image-buildx IMG=ghcr.io/youruser/synology-proxy-operator:latest
+# Multi-arch push
+make image-buildx IMG=ghcr.io/phoeluga/synology-proxy-operator:latest
 ```
 
 ### Regenerate CRD manifests
@@ -222,35 +473,43 @@ make image-buildx IMG=ghcr.io/youruser/synology-proxy-operator:latest
 After changing `api/v1alpha1/synologyproxyrule_types.go`:
 
 ```bash
-make manifests   # regenerates config/crd/bases/*.yaml
+make manifests   # regenerates config/crd/bases/*.yaml + config/rbac/
 make generate    # regenerates zz_generated.deepcopy.go
-
-# Copy updated CRD into Helm chart
 cp config/crd/bases/*.yaml helm/synology-proxy-operator/crds/
 ```
 
----
+### Local dev environment
 
-## Local testing
+See [docs/local-testing.md](docs/local-testing.md) for a full walkthrough using minikube and the VSCode debugger.
 
-See [docs/local-testing.md](docs/local-testing.md) for a full walkthrough using minikube (Podman or Docker), including VSCode debugger setup.
+Quick start:
+
+```bash
+make minikube-start       # start dev cluster (docker driver)
+make dev-setup            # install CRDs + ArgoCD + test fixtures
+# edit .env.local with Synology credentials
+make dev-run              # run operator locally
+# or press F5 in VSCode with "Run operator (minikube)" selected
+```
 
 ---
 
 ## Release
 
-1. Bump the version in `helm/synology-proxy-operator/Chart.yaml`.
-2. Create and push a semver tag:
+1. Bump `version` and `appVersion` in `helm/synology-proxy-operator/Chart.yaml`
+2. Push a semver tag:
 
 ```bash
 git tag v0.2.0
 git push origin v0.2.0
 ```
 
-The [release workflow](.github/workflows/release.yaml) will:
-- Run tests
-- Build and push a multi-arch Docker image to GHCR
-- Package and attach the Helm chart to the GitHub Release
+The [release workflow](.github/workflows/release.yaml) automatically:
+- Builds and pushes a multi-arch image (`linux/amd64`, `linux/arm64`) to GHCR
+- Packages and attaches the Helm chart to the GitHub Release
+
+The [CI workflow](.github/workflows/ci.yaml) pushes `:latest` to GHCR on every merge
+to `main`. In-progress runs are cancelled when a new push arrives.
 
 ---
 
@@ -258,44 +517,44 @@ The [release workflow](.github/workflows/release.yaml) will:
 
 ```
 synology-proxy-operator/
-├── api/v1alpha1/               # CRD type definitions
-│   ├── groupversion_info.go
-│   ├── synologyproxyrule_types.go
-│   └── zz_generated.deepcopy.go
+├── api/v1alpha1/
+│   ├── synologyproxyrule_types.go   # CRD type definitions
+│   └── zz_generated.deepcopy.go     # Generated deepcopy methods
 ├── cmd/
-│   └── main.go                 # Operator entry point
+│   └── main.go                      # Operator entry point, flag/env wiring
 ├── internal/
-│   ├── argo/                   # Minimal ArgoCD types (no full dependency)
-│   │   └── types.go
+│   ├── argo/
+│   │   └── types.go                 # Minimal ArgoCD types (no full dependency)
 │   ├── controller/
-│   │   ├── argoapplication_controller.go   # Watches ArgoCD Apps → creates SynologyProxyRule
-│   │   └── synologyproxyrule_controller.go # Reconciles rules with DSM
-│   └── synology/               # Synology DSM API client
-│       ├── client.go           # HTTP session, login, post helper, wire types
-│       ├── proxy.go            # Proxy record CRUD (create/update/delete, idempotency check)
-│       ├── certificate.go      # Certificate matching & assignment (wildcard/SAN + default fallback)
+│   │   ├── argoapplication_controller.go    # ArgoCD App → SynologyProxyRule
+│   │   ├── serviceingress_controller.go     # Service/Ingress → SynologyProxyRule
+│   │   └── synologyproxyrule_controller.go  # SynologyProxyRule → DSM API
+│   └── synology/
+│       ├── client.go           # HTTP client, session, SynoToken, wire types
+│       ├── proxy.go            # Proxy record CRUD + idempotency check
+│       ├── certificate.go      # Certificate matching + assignment
 │       └── acl.go              # ACL profile UUID resolution
 ├── config/
-│   ├── crd/bases/              # CRD YAML manifests (generated)
+│   ├── crd/bases/              # Generated CRD manifests
 │   ├── rbac/                   # ClusterRole, ClusterRoleBinding, ServiceAccount
 │   └── manager/                # Deployment + ConfigMap
 ├── hack/
-│   └── dev/                    # Local dev fixtures (namespaces, nginx, test SynologyProxyRule, ArgoCD app)
+│   └── dev/                    # Local dev fixtures
 ├── helm/
 │   └── synology-proxy-operator/
 │       ├── Chart.yaml
 │       ├── values.yaml
-│       ├── crds/               # CRD (installed before templates)
+│       ├── crds/
 │       └── templates/
 ├── docs/
 │   └── local-testing.md
 ├── .github/workflows/
-│   ├── ci.yaml                 # Build, test, lint, push :latest on merge to main
-│   └── release.yaml            # Push versioned tag + Helm chart on git tag
+│   ├── ci.yaml
+│   └── release.yaml
 ├── .vscode/
-│   ├── launch.json             # Debug configs (local + minikube)
-│   └── tasks.json              # Pre-launch tasks
-├── .env.local.example          # Credentials template (copy to .env.local)
+│   ├── launch.json
+│   └── tasks.json
+├── .env.local.example
 ├── Dockerfile
 ├── Makefile
 └── README.md
