@@ -129,6 +129,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Register Service/Ingress watcher.
+	if err := (&controller.ServiceIngressReconciler{
+		Client:        mgr.GetClient(),
+		Scheme:        mgr.GetScheme(),
+		Log:           ctrl.Log.WithName("controllers").WithName("ServiceIngress"),
+		RuleNamespace: ruleNamespace,
+	}).SetupWithManager(mgr); err != nil {
+		setupLog.Error(err, "Unable to create ServiceIngress controller")
+		os.Exit(1)
+	}
+
 	// Register ArgoCD Application watcher (optional).
 	if enableArgoWatcher {
 		if err := (&controller.ArgoApplicationReconciler{
