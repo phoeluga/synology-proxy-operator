@@ -173,9 +173,9 @@ func (r *ServiceIngressReconciler) buildRule(
 			Name:      ruleName,
 			Namespace: ruleNS,
 			Labels: map[string]string{
-				"app.kubernetes.io/managed-by":                    "synology-proxy-operator",
-				"proxy.synology.io/managed-by-object":             objectName,
-				"proxy.synology.io/managed-by-object-ns":         objectNamespace,
+				"app.kubernetes.io/managed-by":           "synology-proxy-operator",
+				"proxy.synology.io/managed-by-object":    objectName,
+				"proxy.synology.io/managed-by-object-ns": objectNamespace,
 			},
 		},
 		Spec: proxyv1alpha1.SynologyProxyRuleSpec{
