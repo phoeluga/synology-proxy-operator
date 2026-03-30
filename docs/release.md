@@ -84,9 +84,9 @@ The release workflow takes ~5–10 minutes (multi-arch build is the slow step).
 | `lint` | all PRs + main pushes | `golangci-lint` (version pinned in `.golangci.yml`) |
 | `helm-lint` | all PRs + main pushes | `helm lint` |
 | `docker-build` | all PRs + main pushes | builds image, no push |
-| `push-edge` | main pushes only | pushes `:edge` tag to GHCR (multi-arch) |
+| `push-main` | main pushes only | pushes `:main` tag to GHCR (multi-arch) |
 
-The `:edge` tag represents the latest untagged state of `main`. It is not suitable for production use.
+The `:main` tag represents the latest merged state of the `main` branch. It is not suitable for production use.
 
 In-progress CI runs on the same branch are automatically cancelled when a new push arrives.
 
@@ -99,7 +99,7 @@ In-progress CI runs on the same branch are automatically cancelled when a new pu
 | `:latest` | on every semver release | production |
 | `:v0.x.0` | on every semver release | pinned production |
 | `:0.x` | on every semver release | minor-pinned production |
-| `:edge` | on every push to `main` | testing unreleased changes |
+| `:main` | on every push to `main` | testing unreleased changes |
 | `:ci` | during PR builds (not pushed) | — |
 
 ---

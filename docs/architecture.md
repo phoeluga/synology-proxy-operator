@@ -186,6 +186,6 @@ synology-proxy-operator/
 │   ├── local-testing.md
 │   └── release.md
 └── .github/workflows/
-    ├── ci.yaml                          # PR gates + :edge image on main merge
+    ├── ci.yaml                          # PR gates + :main image on main merge
     └── release.yaml                     # semver tag → multi-arch image + Helm release
 ```
