@@ -222,9 +222,14 @@ func (c *Client) post(ctx context.Context, endpoint string, form url.Values) (js
 		return nil, err
 	}
 
+	// Read SID/SynoToken under lock to avoid a race with concurrent re-logins.
+	c.mu.Lock()
 	form.Set("_sid", c.sid)
-	if c.synoToken != "" {
-		form.Set("SynoToken", c.synoToken)
+	synoToken := c.synoToken
+	c.mu.Unlock()
+
+	if synoToken != "" {
+		form.Set("SynoToken", synoToken)
 	}
 
 	apiURL := strings.TrimSuffix(c.cfg.URL, "/") + endpoint
@@ -233,8 +238,8 @@ func (c *Client) post(ctx context.Context, endpoint string, form url.Values) (js
 		return nil, fmt.Errorf("building request to %s: %w", endpoint, err)
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	if c.synoToken != "" {
-		req.Header.Set("X-SYNO-TOKEN", c.synoToken)
+	if synoToken != "" {
+		req.Header.Set("X-SYNO-TOKEN", synoToken)
 	}
 
 	resp, err := c.httpClient.Do(req)
@@ -253,11 +258,22 @@ func (c *Client) post(ctx context.Context, endpoint string, form url.Values) (js
 		return nil, fmt.Errorf("parsing response from %s: %w", endpoint, err)
 	}
 	if !result.Success {
-		// If session expired, reset and retry once.
+		// If session expired, force a re-login and retry once with fresh credentials.
 		if result.Error != nil && result.Error.Code == 119 {
 			c.mu.Lock()
 			c.sid = ""
 			c.mu.Unlock()
+			if err := c.ensureLoggedIn(ctx); err != nil {
+				return nil, err
+			}
+			// Re-set _sid and SynoToken in the form with the new session values.
+			c.mu.Lock()
+			form.Set("_sid", c.sid)
+			newToken := c.synoToken
+			c.mu.Unlock()
+			if newToken != "" {
+				form.Set("SynoToken", newToken)
+			}
 			return c.post(ctx, endpoint, form)
 		}
 		code := 0

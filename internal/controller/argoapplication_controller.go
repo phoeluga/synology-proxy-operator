@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -15,38 +16,6 @@ import (
 
 	proxyv1alpha1 "github.com/phoeluga/synology-proxy-operator/api/v1alpha1"
 	"github.com/phoeluga/synology-proxy-operator/internal/argo"
-)
-
-// Annotation keys recognised on ArgoCD Application objects.
-const (
-	// AnnotationEnabled enables proxy management for an application.
-	// Value: "true" | "false"
-	AnnotationEnabled = "synology.proxy/enabled"
-
-	// AnnotationSourceHost overrides the public FQDN (frontend hostname).
-	// When absent, the operator constructs it as <appName>.<defaultDomain>.
-	AnnotationSourceHost = "synology.proxy/source-host"
-
-	// AnnotationACLProfile overrides the ACL profile name for this application.
-	AnnotationACLProfile = "synology.proxy/acl-profile"
-
-	// AnnotationDestProtocol overrides the backend protocol ("http" or "https").
-	AnnotationDestProtocol = "synology.proxy/destination-protocol"
-
-	// AnnotationDestHost overrides the backend hostname / IP.
-	AnnotationDestHost = "synology.proxy/destination-host"
-
-	// AnnotationDestPort overrides the backend port.
-	AnnotationDestPort = "synology.proxy/destination-port"
-
-	// AnnotationAssignCert controls certificate assignment ("true"/"false").
-	AnnotationAssignCert = "synology.proxy/assign-certificate"
-
-	// AnnotationServiceRef selects a specific Service for backend discovery: "<namespace>/<name>"
-	AnnotationServiceRef = "synology.proxy/service-ref"
-
-	// AnnotationIngressRef selects a specific Ingress for backend discovery: "<namespace>/<name>"
-	AnnotationIngressRef = "synology.proxy/ingress-ref"
 )
 
 // ArgoApplicationReconciler watches ArgoCD Application objects and creates or
@@ -79,8 +48,9 @@ func (r *ArgoApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
-	// Only manage apps explicitly opted-in via annotation.
-	if !isProxyEnabled(app) {
+	// Manage apps that are explicitly opted-in via annotation, or whose namespace
+	// matches the WatchNamespace glob pattern (auto-enable without annotation).
+	if !isProxyEnabled(app) && !namespaceMatches(app.Namespace, r.WatchNamespace) {
 		// Clean up only rules this operator created (owner reference present).
 		// Rules created manually via resources.yaml are left untouched.
 		return ctrl.Result{}, r.deleteRuleIfExists(ctx, log, app)
@@ -121,7 +91,11 @@ func (r *ArgoApplicationReconciler) reconcileRule(ctx context.Context, log logr.
 		return err
 	}
 
-	// Update spec if it differs.
+	// Only update if spec actually changed.
+	if reflect.DeepEqual(existing.Spec, desired.Spec) {
+		log.V(1).Info("SynologyProxyRule unchanged, skipping update", "rule", ruleName)
+		return nil
+	}
 	existing.Spec = desired.Spec
 	log.Info("Updating SynologyProxyRule for Application", "rule", ruleName)
 	return r.Update(ctx, existing)

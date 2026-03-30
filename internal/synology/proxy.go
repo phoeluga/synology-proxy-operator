@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"reflect"
 )
 
 const (
@@ -140,7 +141,7 @@ func (c *Client) UpsertProxyRule(ctx context.Context, rule ProxyRule) (uuid stri
 		}
 
 		// Update in place using the UUID and _key from the existing record.
-		written = existing.Frontend.FQDN != r.SourceHost
+		written = true
 		entry.UUID = existing.UUID
 		entry.Key = existing.Key
 		c.log.Info("Updating proxy record", "description", r.Description, "uuid", existing.UUID)
@@ -204,7 +205,11 @@ func proxyRecordEqual(existing, desired *ProxyEntry) bool {
 		existing.Frontend.ACL == desired.Frontend.ACL &&
 		existing.Backend.FQDN == desired.Backend.FQDN &&
 		existing.Backend.Port == desired.Backend.Port &&
-		existing.Backend.Protocol == desired.Backend.Protocol
+		existing.Backend.Protocol == desired.Backend.Protocol &&
+		existing.ProxyConnectTimeout == desired.ProxyConnectTimeout &&
+		existing.ProxyReadTimeout == desired.ProxyReadTimeout &&
+		existing.ProxySendTimeout == desired.ProxySendTimeout &&
+		reflect.DeepEqual(existing.CustomizeHeaders, desired.CustomizeHeaders)
 }
 
 // DeleteProxyRecord deletes the DSM reverse proxy record with the given description.

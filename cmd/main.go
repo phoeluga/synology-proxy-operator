@@ -72,7 +72,7 @@ func main() {
 
 	flag.StringVar(&defaultACLProfile, "default-acl-profile", envOrDefault("DEFAULT_ACL_PROFILE", ""), "Default ACL profile name applied to all proxy rules.")
 	flag.StringVar(&defaultDomain, "default-domain", envOrDefault("DEFAULT_DOMAIN", ""), "Default domain suffix for auto-generated source hostnames (e.g. example.com).")
-	flag.StringVar(&watchNamespace, "watch-namespace", envOrDefault("WATCH_NAMESPACE", ""), "Namespace to watch for ArgoCD Applications (empty = all namespaces).")
+	flag.StringVar(&watchNamespace, "watch-namespace", envOrDefault("WATCH_NAMESPACE", ""), "Namespace or glob pattern (e.g. app-*) for auto-enabling proxy rules without annotations. Applies to Services, Ingresses and ArgoCD Applications. Empty = annotation-only mode.")
 	flag.StringVar(&ruleNamespace, "rule-namespace", envOrDefault("RULE_NAMESPACE", "synology-proxy-operator"), "Namespace where SynologyProxyRule objects are created.")
 	flag.BoolVar(&enableArgoWatcher, "enable-argo-watcher", envBoolOrDefault("ENABLE_ARGO_WATCHER", true), "Enable the ArgoCD Application watcher.")
 
@@ -131,10 +131,11 @@ func main() {
 
 	// Register Service/Ingress watcher.
 	if err := (&controller.ServiceIngressReconciler{
-		Client:        mgr.GetClient(),
-		Scheme:        mgr.GetScheme(),
-		Log:           ctrl.Log.WithName("controllers").WithName("ServiceIngress"),
-		RuleNamespace: ruleNamespace,
+		Client:         mgr.GetClient(),
+		Scheme:         mgr.GetScheme(),
+		Log:            ctrl.Log.WithName("controllers").WithName("ServiceIngress"),
+		RuleNamespace:  ruleNamespace,
+		WatchNamespace: watchNamespace,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Unable to create ServiceIngress controller")
 		os.Exit(1)
@@ -174,6 +175,7 @@ func main() {
 		"synologyURL", synologyURL,
 		"defaultDomain", defaultDomain,
 		"ruleNamespace", ruleNamespace,
+		"watchNamespace", watchNamespace,
 		"argoWatcher", enableArgoWatcher,
 	)
 

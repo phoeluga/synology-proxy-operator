@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 
 	"github.com/go-logr/logr"
@@ -32,6 +33,10 @@ type ServiceIngressReconciler struct {
 	Scheme        *runtime.Scheme
 	Log           logr.Logger
 	RuleNamespace string
+	// WatchNamespace is an optional glob pattern (e.g. "app-*"). When set, all
+	// Services and Ingresses in matching namespaces are auto-managed without
+	// requiring the synology.proxy/enabled annotation.
+	WatchNamespace string
 }
 
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
@@ -102,7 +107,7 @@ func (r *ServiceIngressReconciler) reconcileObject(
 	ruleName := ruleNameForObject(name, namespace)
 
 	// Not opted-in or being deleted → clean up if we own the rule.
-	if deleting || !isEnabled(annotations) {
+	if deleting || !r.isResourceEnabled(namespace, annotations) {
 		return ctrl.Result{}, r.deleteOwnedRule(ctx, log, ruleName, ruleNS, name, namespace)
 	}
 
@@ -130,7 +135,11 @@ func (r *ServiceIngressReconciler) upsertRule(
 		return err
 	}
 
-	// Only update if spec changed.
+	// Only update if spec actually changed.
+	if reflect.DeepEqual(existing.Spec, desired.Spec) {
+		log.V(1).Info("SynologyProxyRule unchanged, skipping update", "rule", ruleName)
+		return nil
+	}
 	existing.Spec = desired.Spec
 	log.Info("Updating SynologyProxyRule", "rule", ruleName)
 	return r.Update(ctx, existing)
@@ -215,6 +224,13 @@ func (r *ServiceIngressReconciler) deleteOwnedRule(
 // Format: "<namespace>--<name>" to avoid collisions across namespaces.
 func ruleNameForObject(name, namespace string) string {
 	return fmt.Sprintf("%s--%s", namespace, name)
+}
+
+// isResourceEnabled returns true when the resource should be managed — either
+// via the synology.proxy/enabled annotation or because its namespace matches
+// the configured WatchNamespace glob pattern.
+func (r *ServiceIngressReconciler) isResourceEnabled(namespace string, annotations map[string]string) bool {
+	return isEnabled(annotations) || namespaceMatches(namespace, r.WatchNamespace)
 }
 
 // isEnabled returns true when synology.proxy/enabled=true is set.

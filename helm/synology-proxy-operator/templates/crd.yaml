@@ -1,5 +1,0 @@
-{{- /*
-CRDs are placed in the crds/ directory so Helm installs them before other
-resources. This file is intentionally empty — remove it if you prefer
-managing CRDs outside of Helm.
-*/ -}}

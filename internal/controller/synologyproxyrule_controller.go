@@ -4,6 +4,7 @@ package controller
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/go-logr/logr"
@@ -27,11 +28,6 @@ const (
 	requeueAfter  = 30 * time.Second
 )
 
-// annotationSourceHost is the annotation key on Service/Ingress objects that
-// overrides the auto-derived source hostname for a proxy record.
-// Value: full FQDN, e.g. "myapp.example.com"
-const annotationSourceHost = "synology.proxy/source-host"
-
 // SynologyProxyRuleReconciler reconciles SynologyProxyRule objects.
 // It is responsible for syncing each rule's desired state with the Synology DSM API.
 type SynologyProxyRuleReconciler struct {
@@ -44,6 +40,12 @@ type SynologyProxyRuleReconciler struct {
 	// DefaultDomain is used to derive a source hostname when spec.sourceHost is empty.
 	// E.g. "example.com" → service "nginx" → "nginx.example.com".
 	DefaultDomain string
+
+	// ACL profile cache to reduce repeated DSM lookups.
+	aclCacheMu  sync.Mutex
+	aclCache    map[string]string // profile name -> UUID
+	aclCacheAt  time.Time
+	aclCacheTTL time.Duration // defaults to 5 minutes
 }
 
 // +kubebuilder:rbac:groups=proxy.synology.io,resources=synologyproxyrules,verbs=get;list;watch;create;update;patch;delete
@@ -105,12 +107,21 @@ func (r *SynologyProxyRuleReconciler) reconcileDelete(ctx context.Context, log l
 }
 
 // managedDescriptions returns the DSM description keys tracked in status.
+// For pre-migration objects where status.ManagedRecords is empty, it falls back
+// to spec.Description (if set) or the rule name.
 func managedDescriptions(rule *proxyv1alpha1.SynologyProxyRule) []string {
-	descs := make([]string, len(rule.Status.ManagedRecords))
-	for i, r := range rule.Status.ManagedRecords {
-		descs[i] = r.Description
+	if len(rule.Status.ManagedRecords) > 0 {
+		descs := make([]string, len(rule.Status.ManagedRecords))
+		for i, r := range rule.Status.ManagedRecords {
+			descs[i] = r.Description
+		}
+		return descs
 	}
-	return descs
+	// Fallback for pre-migration objects.
+	if rule.Spec.Description != "" {
+		return []string{rule.Spec.Description}
+	}
+	return []string{rule.Namespace + "/" + rule.Name}
 }
 
 // reconcileUpsert handles create/update of a SynologyProxyRule.
@@ -156,7 +167,7 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 	aclID := ""
 	if aclProfileName != "" {
 		var err error
-		aclID, err = r.SynologyClient.GetACLProfileID(ctx, aclProfileName)
+		aclID, err = r.resolveACLProfile(ctx, aclProfileName)
 		if err != nil {
 			log.Error(err, "Failed to resolve ACL profile", "profile", aclProfileName)
 			r.setCondition(rule, proxyv1alpha1.ConditionSynced, metav1.ConditionFalse,
@@ -215,11 +226,13 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 	for _, e := range allHosts {
 		desiredDescs[e.desc] = struct{}{}
 	}
+	var failedStaleRecords []proxyv1alpha1.ManagedRecord
 	for _, managed := range rule.Status.ManagedRecords {
 		if _, stillWanted := desiredDescs[managed.Description]; !stillWanted {
 			log.Info("Removing stale DSM record for removed host", "description", managed.Description)
 			if _, err := r.SynologyClient.DeleteProxyRecord(ctx, managed.Description); err != nil {
 				log.Error(err, "Failed to delete stale proxy record (will retry)", "description", managed.Description)
+				failedStaleRecords = append(failedStaleRecords, managed)
 			}
 		}
 	}
@@ -253,6 +266,17 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 			UUID:        uuid,
 			SourceHost:  entry.sourceHost,
 		})
+	}
+
+	// If any stale records failed to delete, keep them in the managed list so the
+	// next reconcile retries the deletion.
+	if len(failedStaleRecords) > 0 {
+		managedRecords = append(managedRecords, failedStaleRecords...)
+		r.setCondition(rule, proxyv1alpha1.ConditionSynced, metav1.ConditionFalse,
+			proxyv1alpha1.ReasonSyncFailed, "Failed to delete stale DSM records; will retry")
+		rule.Status.ManagedRecords = managedRecords
+		_ = r.Status().Update(ctx, rule)
+		return ctrl.Result{RequeueAfter: requeueAfter}, nil
 	}
 
 	// --- Update status (only when something changed) ---
@@ -402,12 +426,13 @@ func managedRecordsEqual(a, b []proxyv1alpha1.ManagedRecord) bool {
 }
 
 // descriptionFor returns the DSM record description for a rule,
-// falling back to the resource name.
+// falling back to "<namespace>/<name>" so records from different namespaces
+// do not collide in the DSM UI.
 func (r *SynologyProxyRuleReconciler) descriptionFor(rule *proxyv1alpha1.SynologyProxyRule) string {
 	if rule.Spec.Description != "" {
 		return rule.Spec.Description
 	}
-	return rule.Name
+	return rule.Namespace + "/" + rule.Name
 }
 
 // deriveSourceHost returns the source hostname for a rule.
@@ -430,7 +455,7 @@ func (r *SynologyProxyRuleReconciler) deriveSourceHost(ctx context.Context, rule
 		}
 		svc := &corev1.Service{}
 		if err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: svcNS}, svc); err == nil {
-			if h := svc.Annotations[annotationSourceHost]; h != "" {
+			if h := svc.Annotations[AnnotationSourceHost]; h != "" {
 				return h, nil
 			}
 			if r.DefaultDomain != "" {
@@ -446,7 +471,7 @@ func (r *SynologyProxyRuleReconciler) deriveSourceHost(ctx context.Context, rule
 		}
 		ing := &networkingv1.Ingress{}
 		if err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ingNS}, ing); err == nil {
-			if h := ing.Annotations[annotationSourceHost]; h != "" {
+			if h := ing.Annotations[AnnotationSourceHost]; h != "" {
 				return h, nil
 			}
 			if r.DefaultDomain != "" {
@@ -465,21 +490,61 @@ func (r *SynologyProxyRuleReconciler) deriveSourceHost(ctx context.Context, rule
 		"or configure DEFAULT_DOMAIN on the operator")
 }
 
-// setCondition updates or appends a condition on the rule's status.
+// setCondition updates or appends a condition on the rule's status,
+// stamping ObservedGeneration so consumers can tell whether the condition is current.
 func (r *SynologyProxyRuleReconciler) setCondition(rule *proxyv1alpha1.SynologyProxyRule,
 	condType string, status metav1.ConditionStatus, reason, message string) {
 
-	meta.SetStatusCondition(&rule.Status.Conditions, metav1.Condition{
+	cond := metav1.Condition{
 		Type:               condType,
 		Status:             status,
 		Reason:             reason,
 		Message:            message,
 		LastTransitionTime: metav1.Now(),
-	})
+		ObservedGeneration: rule.Generation,
+	}
+	meta.SetStatusCondition(&rule.Status.Conditions, cond)
+}
+
+// resolveACLProfile returns the DSM UUID for the given profile name, using an
+// in-memory cache with a TTL of r.aclCacheTTL to avoid repeated DSM calls.
+func (r *SynologyProxyRuleReconciler) resolveACLProfile(ctx context.Context, name string) (string, error) {
+	r.aclCacheMu.Lock()
+	defer r.aclCacheMu.Unlock()
+
+	ttl := r.aclCacheTTL
+	if ttl == 0 {
+		ttl = 5 * time.Minute
+	}
+
+	if r.aclCache != nil && time.Since(r.aclCacheAt) < ttl {
+		if id, ok := r.aclCache[name]; ok {
+			return id, nil
+		}
+	}
+
+	// Cache miss or expired — fetch from DSM.
+	id, err := r.SynologyClient.GetACLProfileID(ctx, name)
+	if err != nil {
+		return "", err
+	}
+
+	if r.aclCache == nil {
+		r.aclCache = make(map[string]string)
+	}
+	r.aclCache[name] = id
+	r.aclCacheAt = time.Now()
+	return id, nil
 }
 
 // SetupWithManager registers the controller with the Manager.
 func (r *SynologyProxyRuleReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.aclCacheTTL == 0 {
+		r.aclCacheTTL = 5 * time.Minute
+	}
+	if r.aclCache == nil {
+		r.aclCache = make(map[string]string)
+	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&proxyv1alpha1.SynologyProxyRule{}).
 		Complete(r)

@@ -37,6 +37,12 @@ jobs:
       - name: Run tests
         run: go test ./...
 
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: v1.61.0
+          args: --timeout=5m
+
       - name: Set up QEMU (multi-arch)
         uses: docker/setup-qemu-action@v3
 
@@ -81,8 +87,6 @@ jobs:
           TAG="${GITHUB_REF_NAME#v}"
           sed -i "s/^appVersion:.*/appVersion: \"${TAG}\"/" helm/synology-proxy-operator/Chart.yaml
           sed -i "s/^version:.*/version: ${TAG}/" helm/synology-proxy-operator/Chart.yaml
-          # Also update default image tag in values.yaml
-          sed -i "s|ghcr.io/phoeluga/synology-proxy-operator|${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}|" config/manager/deployment.yaml
 
       - name: Package Helm chart
         run: |

@@ -39,3 +39,4 @@ secret.yaml
 
 # envtest binaries downloaded by setup-envtest
 bin/envtest/
+.claude
