@@ -6,9 +6,16 @@ import (
 
 // SynologyProxyRuleSpec defines the desired state of a reverse proxy rule on Synology DSM.
 type SynologyProxyRuleSpec struct {
-	// SourceHost is the public FQDN that the reverse proxy will listen on (frontend).
+	// SourceHost is the primary public FQDN that the reverse proxy will listen on (frontend).
 	// +kubebuilder:validation:Required
 	SourceHost string `json:"sourceHost"`
+
+	// AdditionalSourceHosts lists extra public FQDNs that should each get their own
+	// DSM reverse proxy record pointing at the same backend.
+	// Each additional host creates a separate record in Synology DSM with its own
+	// certificate assigned automatically.
+	// +optional
+	AdditionalSourceHosts []string `json:"additionalSourceHosts,omitempty"`
 
 	// SourcePort is the HTTPS port the reverse proxy listens on. Defaults to 443.
 	// +kubebuilder:default=443
@@ -102,11 +109,22 @@ type ProxyTimeouts struct {
 	Send int `json:"send,omitempty"`
 }
 
+// ManagedRecord tracks a single DSM reverse proxy record created by the operator.
+type ManagedRecord struct {
+	// Description is the DSM record description used as the unique lookup key.
+	Description string `json:"description"`
+	// UUID is the DSM record UUID.
+	UUID string `json:"uuid"`
+	// SourceHost is the public FQDN this record fronts.
+	SourceHost string `json:"sourceHost"`
+}
+
 // SynologyProxyRuleStatus defines the observed state of SynologyProxyRule.
 type SynologyProxyRuleStatus struct {
-	// UUID is the Synology DSM record UUID assigned after creation.
+	// ManagedRecords lists all DSM proxy records currently managed by this rule
+	// (one per sourceHost / additionalSourceHosts entry).
 	// +optional
-	UUID string `json:"uuid,omitempty"`
+	ManagedRecords []ManagedRecord `json:"managedRecords,omitempty"`
 
 	// Synced indicates whether the last reconciliation succeeded.
 	Synced bool `json:"synced"`
@@ -153,7 +171,7 @@ const (
 // +kubebuilder:printcolumn:name="Source Host",type=string,JSONPath=`.spec.sourceHost`
 // +kubebuilder:printcolumn:name="Destination",type=string,JSONPath=`.status.resolvedDestinationHost`
 // +kubebuilder:printcolumn:name="Synced",type=boolean,JSONPath=`.status.synced`
-// +kubebuilder:printcolumn:name="UUID",type=string,JSONPath=`.status.uuid`
+// +kubebuilder:printcolumn:name="Records",type=integer,JSONPath=`.status.managedRecords`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // SynologyProxyRule is the Schema for the synologyproxyrules API.

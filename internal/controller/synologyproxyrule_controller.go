@@ -74,17 +74,19 @@ func (r *SynologyProxyRuleReconciler) Reconcile(ctx context.Context, req ctrl.Re
 }
 
 // reconcileDelete handles cleanup when a SynologyProxyRule is deleted.
+// It removes all DSM records tracked in status.ManagedRecords, falling back
+// to the primary description if status is empty (e.g. pre-migration objects).
 func (r *SynologyProxyRuleReconciler) reconcileDelete(ctx context.Context, log logr.Logger, rule *proxyv1alpha1.SynologyProxyRule) (ctrl.Result, error) {
-	description := r.descriptionFor(rule)
-	log.Info("Deleting proxy record from DSM", "description", description)
-
-	_, err := r.SynologyClient.DeleteProxyRecord(ctx, description)
-	if err != nil {
-		log.Error(err, "Failed to delete proxy record from DSM")
-		r.setCondition(rule, proxyv1alpha1.ConditionSynced, metav1.ConditionFalse,
-			proxyv1alpha1.ReasonSyncFailed, err.Error())
-		_ = r.Status().Update(ctx, rule)
-		return ctrl.Result{RequeueAfter: requeueAfter}, nil
+	descriptions := managedDescriptions(rule)
+	for _, desc := range descriptions {
+		log.Info("Deleting proxy record from DSM", "description", desc)
+		if _, err := r.SynologyClient.DeleteProxyRecord(ctx, desc); err != nil {
+			log.Error(err, "Failed to delete proxy record from DSM")
+			r.setCondition(rule, proxyv1alpha1.ConditionSynced, metav1.ConditionFalse,
+				proxyv1alpha1.ReasonSyncFailed, err.Error())
+			_ = r.Status().Update(ctx, rule)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
+		}
 	}
 
 	controllerutil.RemoveFinalizer(rule, finalizerName)
@@ -94,11 +96,21 @@ func (r *SynologyProxyRuleReconciler) reconcileDelete(ctx context.Context, log l
 	return ctrl.Result{}, nil
 }
 
+// managedDescriptions returns the DSM description keys tracked in status.
+func managedDescriptions(rule *proxyv1alpha1.SynologyProxyRule) []string {
+	descs := make([]string, len(rule.Status.ManagedRecords))
+	for i, r := range rule.Status.ManagedRecords {
+		descs[i] = r.Description
+	}
+	return descs
+}
+
 // reconcileUpsert handles create/update of a SynologyProxyRule.
+// It manages one DSM proxy record per source host (sourceHost + additionalSourceHosts).
 func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log logr.Logger, rule *proxyv1alpha1.SynologyProxyRule) (ctrl.Result, error) {
 	spec := rule.Spec
 
-	// --- Backend discovery ---
+	// --- Backend discovery (shared across all source hosts) ---
 	destHost := spec.DestinationHost
 	destPort := spec.DestinationPort
 
@@ -146,64 +158,94 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 		}
 	}
 
-	// --- Build proxy rule ---
-	proxyRule := synology.ProxyRule{
-		Description:      r.descriptionFor(rule),
-		SourceHost:       spec.SourceHost,
+	// --- Build base proxy rule template (backend + timeouts + headers are shared) ---
+	baseRule := synology.ProxyRule{
 		SourcePort:       spec.SourcePort,
 		DestinationHost:  destHost,
 		DestinationPort:  destPort,
 		DestinationHTTPS: spec.DestinationProtocol == "https",
 		ACLProfileID:     aclID,
 	}
-
 	if spec.Timeouts != nil {
-		proxyRule.ConnectTimeout = spec.Timeouts.Connect
-		proxyRule.ReadTimeout = spec.Timeouts.Read
-		proxyRule.SendTimeout = spec.Timeouts.Send
+		baseRule.ConnectTimeout = spec.Timeouts.Connect
+		baseRule.ReadTimeout = spec.Timeouts.Read
+		baseRule.SendTimeout = spec.Timeouts.Send
+	}
+	for _, h := range spec.CustomHeaders {
+		baseRule.CustomHeaders = append(baseRule.CustomHeaders, synology.CustomHeader{
+			Name:  h.Name,
+			Value: h.Value,
+		})
 	}
 
-	if len(spec.CustomHeaders) > 0 {
-		for _, h := range spec.CustomHeaders {
-			proxyRule.CustomHeaders = append(proxyRule.CustomHeaders, synology.CustomHeader{
-				Name:  h.Name,
-				Value: h.Value,
-			})
+	// --- Build desired host→description mapping ---
+	// Primary host keeps the base description for backward compatibility.
+	// Additional hosts get "<baseDesc>/<host>" so they're identifiable in the DSM UI.
+	baseDesc := r.descriptionFor(rule)
+	type hostEntry struct {
+		desc       string
+		sourceHost string
+	}
+	allHosts := make([]hostEntry, 0, 1+len(spec.AdditionalSourceHosts))
+	allHosts = append(allHosts, hostEntry{baseDesc, spec.SourceHost})
+	for _, h := range spec.AdditionalSourceHosts {
+		allHosts = append(allHosts, hostEntry{baseDesc + "/" + h, h})
+	}
+
+	// --- Clean up DSM records for hosts that were removed from the spec ---
+	desiredDescs := make(map[string]struct{}, len(allHosts))
+	for _, e := range allHosts {
+		desiredDescs[e.desc] = struct{}{}
+	}
+	for _, managed := range rule.Status.ManagedRecords {
+		if _, stillWanted := desiredDescs[managed.Description]; !stillWanted {
+			log.Info("Removing stale DSM record for removed host", "description", managed.Description)
+			if _, err := r.SynologyClient.DeleteProxyRecord(ctx, managed.Description); err != nil {
+				log.Error(err, "Failed to delete stale proxy record (will retry)", "description", managed.Description)
+			}
 		}
 	}
 
-	// --- Upsert record ---
-	uuid, written, err := r.SynologyClient.UpsertProxyRule(ctx, proxyRule)
-	if err != nil {
-		log.Error(err, "Failed to upsert proxy record")
-		r.setCondition(rule, proxyv1alpha1.ConditionSynced, metav1.ConditionFalse,
-			proxyv1alpha1.ReasonSyncFailed, err.Error())
-		_ = r.Status().Update(ctx, rule)
-		return ctrl.Result{RequeueAfter: requeueAfter}, nil
-	}
-
-	// --- Certificate assignment ---
-	// Always attempt assignment — AssignCertificate is idempotent and skips if
-	// the correct cert is already in place. Falls back to the DSM default cert
-	// when no specific match is found for the hostname.
+	// --- Upsert one DSM record per source host ---
 	assignCert := spec.AssignCertificate == nil || *spec.AssignCertificate
-	if assignCert && written && uuid != "" {
-		if err := r.SynologyClient.AssignCertificate(ctx, uuid, spec.SourceHost); err != nil {
-			log.Error(err, "Certificate assignment failed (non-fatal)", "hostname", spec.SourceHost)
+	managedRecords := make([]proxyv1alpha1.ManagedRecord, 0, len(allHosts))
+
+	for _, entry := range allHosts {
+		pr := baseRule
+		pr.Description = entry.desc
+		pr.SourceHost = entry.sourceHost
+
+		uuid, written, err := r.SynologyClient.UpsertProxyRule(ctx, pr)
+		if err != nil {
+			log.Error(err, "Failed to upsert proxy record", "description", entry.desc)
+			r.setCondition(rule, proxyv1alpha1.ConditionSynced, metav1.ConditionFalse,
+				proxyv1alpha1.ReasonSyncFailed, err.Error())
+			_ = r.Status().Update(ctx, rule)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		}
+
+		if assignCert && written && uuid != "" {
+			if err := r.SynologyClient.AssignCertificate(ctx, uuid, entry.sourceHost); err != nil {
+				log.Error(err, "Certificate assignment failed (non-fatal)", "hostname", entry.sourceHost)
+			}
+		}
+
+		managedRecords = append(managedRecords, proxyv1alpha1.ManagedRecord{
+			Description: entry.desc,
+			UUID:        uuid,
+			SourceHost:  entry.sourceHost,
+		})
 	}
 
 	// --- Update status (only when something changed) ---
-	// Avoid a spurious second reconcile: writing status triggers a watch event
-	// which re-enqueues the object. Skip the write if status is already current.
-	statusChanged := rule.Status.UUID != uuid ||
-		rule.Status.ResolvedDestinationHost != destHost ||
+	statusChanged := rule.Status.ResolvedDestinationHost != destHost ||
 		rule.Status.ResolvedDestinationPort != destPort ||
-		!rule.Status.Synced
+		!rule.Status.Synced ||
+		!managedRecordsEqual(rule.Status.ManagedRecords, managedRecords)
 
 	if statusChanged {
 		now := metav1.Now()
-		rule.Status.UUID = uuid
+		rule.Status.ManagedRecords = managedRecords
 		rule.Status.Synced = true
 		rule.Status.LastSyncTime = &now
 		rule.Status.ResolvedDestinationHost = destHost
@@ -220,8 +262,9 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 
 	log.Info("Successfully reconciled proxy rule",
 		"sourceHost", spec.SourceHost,
+		"additionalHosts", len(spec.AdditionalSourceHosts),
 		"destination", fmt.Sprintf("%s:%d", destHost, destPort),
-		"uuid", uuid)
+		"records", len(managedRecords))
 
 	return ctrl.Result{RequeueAfter: 5 * time.Minute}, nil
 }
@@ -325,6 +368,19 @@ func extractFromIngress(ing *networkingv1.Ingress) (host string, port int) {
 		}
 	}
 	return "", 0
+}
+
+// managedRecordsEqual returns true if two ManagedRecord slices have the same content.
+func managedRecordsEqual(a, b []proxyv1alpha1.ManagedRecord) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // descriptionFor returns the DSM record description for a rule,

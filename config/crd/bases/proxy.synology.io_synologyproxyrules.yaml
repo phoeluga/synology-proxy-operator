@@ -26,9 +26,9 @@ spec:
     - jsonPath: .status.synced
       name: Synced
       type: boolean
-    - jsonPath: .status.uuid
-      name: UUID
-      type: string
+    - jsonPath: .status.managedRecords
+      name: Records
+      type: integer
     - jsonPath: .metadata.creationTimestamp
       name: Age
       type: date
@@ -65,6 +65,15 @@ spec:
                   ACLProfile is the name of the Synology Access Control Profile to apply.
                   Uses the operator-level default when empty.
                 type: string
+              additionalSourceHosts:
+                description: |-
+                  AdditionalSourceHosts lists extra public FQDNs that should each get their own
+                  DSM reverse proxy record pointing at the same backend.
+                  Each additional host creates a separate record in Synology DSM with its own
+                  certificate assigned automatically.
+                items:
+                  type: string
+                type: array
               assignCertificate:
                 default: true
                 description: |-
@@ -150,8 +159,8 @@ spec:
                 - name
                 type: object
               sourceHost:
-                description: SourceHost is the public FQDN that the reverse proxy
-                  will listen on (frontend).
+                description: SourceHost is the primary public FQDN that the reverse
+                  proxy will listen on (frontend).
                 type: string
               sourcePort:
                 default: 443
@@ -246,6 +255,30 @@ spec:
                   sync.
                 format: date-time
                 type: string
+              managedRecords:
+                description: |-
+                  ManagedRecords lists all DSM proxy records currently managed by this rule
+                  (one per sourceHost / additionalSourceHosts entry).
+                items:
+                  description: ManagedRecord tracks a single DSM reverse proxy record
+                    created by the operator.
+                  properties:
+                    description:
+                      description: Description is the DSM record description used
+                        as the unique lookup key.
+                      type: string
+                    sourceHost:
+                      description: SourceHost is the public FQDN this record fronts.
+                      type: string
+                    uuid:
+                      description: UUID is the DSM record UUID.
+                      type: string
+                  required:
+                  - description
+                  - sourceHost
+                  - uuid
+                  type: object
+                type: array
               resolvedDestinationHost:
                 description: ResolvedDestinationHost is the backend IP/hostname resolved
                   during auto-discovery.
@@ -257,9 +290,6 @@ spec:
               synced:
                 description: Synced indicates whether the last reconciliation succeeded.
                 type: boolean
-              uuid:
-                description: UUID is the Synology DSM record UUID assigned after creation.
-                type: string
             required:
             - synced
             type: object
