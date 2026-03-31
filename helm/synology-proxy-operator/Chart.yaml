@@ -1,0 +1,31 @@
+apiVersion: v2
+name: synology-proxy-operator
+description: >
+  Kubernetes operator that automatically manages Synology DSM reverse proxy
+  records based on annotated Services, Ingresses, ArgoCD Applications, and
+  manual SynologyProxyRule CRDs.
+type: application
+version: 0.0.0
+appVersion: "0.0.0"
+keywords:
+  - synology
+  - reverse-proxy
+  - operator
+  - argocd
+  - kubernetes
+  - homelab
+home: https://github.com/phoeluga/synology-proxy-operator
+sources:
+  - https://github.com/phoeluga/synology-proxy-operator
+maintainers:
+  - name: phoeluga
+    url: https://github.com/phoeluga
+annotations:
+  artifacthub.io/license: Apache-2.0
+  artifacthub.io/operator: "true"
+  artifacthub.io/operatorCapabilities: Basic Install
+  artifacthub.io/links: |
+    - name: Documentation
+      url: https://github.com/phoeluga/synology-proxy-operator#readme
+    - name: Source
+      url: https://github.com/phoeluga/synology-proxy-operator

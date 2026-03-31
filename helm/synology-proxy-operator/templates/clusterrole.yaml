@@ -1,0 +1,33 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "synology-proxy-operator.fullname" . }}-role
+  labels:
+    {{- include "synology-proxy-operator.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["proxy.synology.io"]
+    resources: ["synologyproxyrules"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["proxy.synology.io"]
+    resources: ["synologyproxyrules/status"]
+    verbs: ["get", "update", "patch"]
+  - apiGroups: ["proxy.synology.io"]
+    resources: ["synologyproxyrules/finalizers"]
+    verbs: ["update"]
+  {{- if .Values.operator.enableArgoWatcher }}
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    verbs: ["get", "list", "watch"]
+  {{- end }}
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]

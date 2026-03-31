@@ -1,0 +1,52 @@
+# Binaries
+bin/
+dist/
+# Built binary (not the config/ directory)
+bin/manager
+
+# Go build cache
+*.test
+*.out
+cover.out
+
+# Vendor (if not using modules)
+vendor/
+
+# IDE
+.idea/
+# Keep .vscode/launch.json and tasks.json in git — only ignore user-local settings
+.vscode/*.code-workspace
+.vscode/settings.json
+*.swp
+*.swo
+
+# macOS
+.DS_Store
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# Secrets — never commit real credentials
+*.env
+.env
+.env.local
+secrets.yaml
+secret.yaml
+
+# Helm
+*.tgz
+
+# envtest binaries downloaded by setup-envtest
+bin/envtest/
+
+.private/
+
+# >>> p-sync >>>
+.vscode/
+.claude/
+docs/development.md
+docs/local-testing.md
+docs/release.md
+.env.local.example
+# <<< p-sync <<<
