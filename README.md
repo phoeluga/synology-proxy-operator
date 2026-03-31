@@ -5,10 +5,11 @@
 
 [![CI](https://github.com/phoeluga/synology-proxy-operator/actions/workflows/ci.yaml/badge.svg)](https://github.com/phoeluga/synology-proxy-operator/actions/workflows/ci.yaml)
 [![Release](https://img.shields.io/github/v/release/phoeluga/synology-proxy-operator?label=latest%20release)](https://github.com/phoeluga/synology-proxy-operator/releases)
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/synology-proxy-operator)](https://artifacthub.io/packages/helm/synology-proxy-operator/synology-proxy-operator)
-[![Go Report Card](https://goreportcard.com/badge/github.com/phoeluga/synology-proxy-operator)](https://goreportcard.com/report/github.com/phoeluga/synology-proxy-operator)
+<!-- [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/synology-proxy-operator)](https://artifacthub.io/packages/helm/synology-proxy-operator/synology-proxy-operator) -->
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/synology-proxy-operator)](https://artifacthub.io/packages/search?repo=synology-proxy-operator)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/phoeluga/synology-proxy-operator)](go.mod)
-[![Image Size](https://ghcr-badge.egpl.dev/phoeluga/synology-proxy-operator/size?tag=latest)](https://github.com/phoeluga/synology-proxy-operator/pkgs/container/synology-proxy-operator)
+[![Go Report Card](https://goreportcard.com/badge/github.com/phoeluga/synology-proxy-operator)](https://goreportcard.com/report/github.com/phoeluga/synology-proxy-operator)
+![GitHub repo size](https://img.shields.io/github/repo-size/phoeluga/synology-proxy-operator)
 
 
 > **Deploy an app. Get a working HTTPS hostname. Automatically.**

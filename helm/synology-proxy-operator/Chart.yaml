@@ -14,6 +14,7 @@ keywords:
   - argocd
   - kubernetes
   - homelab
+icon: https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/synoProxyOperator_4.png
 home: https://github.com/phoeluga/synology-proxy-operator
 sources:
   - https://github.com/phoeluga/synology-proxy-operator
@@ -23,6 +24,7 @@ maintainers:
 annotations:
   artifacthub.io/license: Apache-2.0
   artifacthub.io/operator: "true"
+  artifacthub.io/repository-id: "4a0f3f01-c3d8-4b6f-9de8-8e062b9b825f"
   artifacthub.io/operatorCapabilities: Basic Install
   artifacthub.io/links: |
     - name: Documentation
