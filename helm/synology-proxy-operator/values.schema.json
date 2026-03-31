@@ -1,0 +1,165 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "synology": {
+      "type": "object",
+      "description": "Synology DSM connection settings",
+      "required": ["url"],
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "DSM base URL including port, e.g. https://192.168.1.x:5001"
+        },
+        "username": {
+          "type": "string",
+          "description": "DSM username (dedicated account recommended)"
+        },
+        "password": {
+          "type": "string",
+          "description": "DSM password — prefer existingSecret for production"
+        },
+        "skipTLSVerify": {
+          "type": "boolean",
+          "description": "Skip TLS verification for self-signed DSM certificates",
+          "default": false
+        },
+        "existingSecret": {
+          "type": "string",
+          "description": "Name of an existing Secret with keys SYNOLOGY_URL, SYNOLOGY_USER, SYNOLOGY_PASSWORD"
+        }
+      }
+    },
+    "operator": {
+      "type": "object",
+      "description": "Operator behaviour settings",
+      "properties": {
+        "defaultDomain": {
+          "type": "string",
+          "description": "Domain appended to auto-derived hostnames, e.g. home.example.com"
+        },
+        "defaultACLProfile": {
+          "type": "string",
+          "description": "Synology ACL profile applied to rules that do not specify their own"
+        },
+        "enableArgoWatcher": {
+          "type": "boolean",
+          "description": "Enable the ArgoCD Application watcher",
+          "default": true
+        },
+        "watchNamespace": {
+          "type": "string",
+          "description": "Glob pattern of namespaces to auto-manage without annotations, e.g. app-*. Empty = annotation-based only"
+        },
+        "ruleNamespace": {
+          "type": "string",
+          "description": "Namespace where auto-generated SynologyProxyRule objects are created",
+          "default": "synology-proxy-operator"
+        }
+      }
+    },
+    "replicaCount": {
+      "type": "integer",
+      "description": "Number of operator replicas (use leaderElection: true when > 1)",
+      "default": 1,
+      "minimum": 1
+    },
+    "image": {
+      "type": "object",
+      "properties": {
+        "repository": {
+          "type": "string",
+          "default": "ghcr.io/phoeluga/synology-proxy-operator"
+        },
+        "pullPolicy": {
+          "type": "string",
+          "enum": ["Always", "IfNotPresent", "Never"],
+          "default": "IfNotPresent"
+        },
+        "tag": {
+          "type": "string",
+          "description": "Image tag. Defaults to chart appVersion when empty"
+        }
+      }
+    },
+    "imagePullSecrets": {
+      "type": "array",
+      "items": { "type": "object" }
+    },
+    "serviceAccount": {
+      "type": "object",
+      "properties": {
+        "create": {
+          "type": "boolean",
+          "default": true
+        },
+        "annotations": {
+          "type": "object"
+        },
+        "name": {
+          "type": "string",
+          "description": "Name of the service account. Auto-generated when empty"
+        }
+      }
+    },
+    "podAnnotations": { "type": "object" },
+    "podLabels": { "type": "object" },
+    "podSecurityContext": { "type": "object" },
+    "securityContext": { "type": "object" },
+    "resources": {
+      "type": "object",
+      "properties": {
+        "limits": { "type": "object" },
+        "requests": { "type": "object" }
+      }
+    },
+    "leaderElection": {
+      "type": "boolean",
+      "description": "Enable leader election when running multiple replicas",
+      "default": false
+    },
+    "nodeSelector": { "type": "object" },
+    "tolerations": { "type": "array" },
+    "affinity": { "type": "object" },
+    "metrics": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "service": {
+          "type": "object",
+          "properties": {
+            "port": {
+              "type": "integer",
+              "default": 8080
+            }
+          }
+        },
+        "serviceMonitor": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false
+            },
+            "interval": {
+              "type": "string",
+              "default": "30s"
+            },
+            "scrapeTimeout": {
+              "type": "string",
+              "default": "10s"
+            }
+          }
+        }
+      }
+    },
+    "installCRDs": {
+      "type": "boolean",
+      "description": "Install CRDs as part of the Helm release. Set to false when managing CRDs separately via GitOps",
+      "default": true
+    }
+  }
+}

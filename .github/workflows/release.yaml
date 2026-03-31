@@ -47,7 +47,7 @@ jobs:
         uses: azure/setup-helm@v5
 
       - name: Lint Helm chart
-        run: helm lint helm/synology-proxy-operator
+        run: helm lint helm/synology-proxy-operator --strict
 
       - name: Set up QEMU (multi-arch)
         uses: docker/setup-qemu-action@v4
@@ -91,6 +91,7 @@ jobs:
           TAG="${GITHUB_REF_NAME#v}"
           sed -i "s/^appVersion:.*/appVersion: \"${TAG}\"/" helm/synology-proxy-operator/Chart.yaml
           sed -i "s/^version:.*/version: ${TAG}/" helm/synology-proxy-operator/Chart.yaml
+          cp README.md helm/synology-proxy-operator/README.md
 
       - name: Package Helm chart
         run: |
