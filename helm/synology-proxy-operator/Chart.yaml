@@ -18,6 +18,7 @@ icon: https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/do
 home: https://github.com/phoeluga/synology-proxy-operator
 sources:
   - https://github.com/phoeluga/synology-proxy-operator
+  - https://github.com/phoeluga/synology-proxy-operator/blob/main/helm/synology-proxy-operator
 maintainers:
   - name: phoeluga
     url: https://github.com/phoeluga
