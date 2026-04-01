@@ -87,8 +87,8 @@ jobs:
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}-amd64 \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}-arm64
-          DIGEST=$(docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION} --format '{{.Manifest.Digest}}')
-          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+          DIGEST=$(docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION} --format '{{json .Manifest}}' | jq -r '.digest')
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v3
