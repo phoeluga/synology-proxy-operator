@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.5](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.4...v0.0.5) (2026-04-01)
+
+
+### Bug Fixes
+
+* adding direct chart link to sources ([a838505](https://github.com/phoeluga/synology-proxy-operator/commit/a838505a6e6240f1805f09967a36fe1fa574c7bd))
+
 ## [0.0.4](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.3...v0.0.4) (2026-04-01)
 
 
