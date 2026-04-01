@@ -3,7 +3,7 @@
 # ─── Build stage ────────────────────────────────────────────────────────────
 # Always build on the native runner platform (amd64).
 # TARGETARCH is injected by buildx and tells Go which arch to cross-compile for.
-FROM --platform=$BUILDPLATFORM golang:1.22.0-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
 
 ARG TARGETARCH
 

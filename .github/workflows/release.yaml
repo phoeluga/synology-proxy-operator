@@ -97,6 +97,7 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Create and push manifest index
+        id: manifest
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           MINOR="${TAG%.*}"
@@ -106,6 +107,18 @@ jobs:
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}-amd64 \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}-arm64
+          # Capture digest of the manifest index for signing
+          DIGEST=$(docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG} --format '{{.Manifest.Digest}}')
+          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign container image (keyless)
+        run: |
+          cosign sign --yes \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.manifest.outputs.digest }}
 
       # ── Helm chart release ────────────────────────────────────────────────
       - name: Update chart version to match tag
@@ -123,6 +136,8 @@ jobs:
       - name: Push Helm chart to GHCR (OCI)
         run: |
           helm push dist/*.tgz oci://ghcr.io/phoeluga/charts
+
+
 
       - name: Create GitHub Release
         env:
