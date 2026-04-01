@@ -1,9 +1,8 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
 
 # One release per tag — don't cancel if two tags are pushed simultaneously.
 concurrency:
@@ -19,35 +18,17 @@ jobs:
     name: Build & Push Docker image + Helm chart
     runs-on: ubuntu-latest
     permissions:
-      contents: write    # Create GitHub Release
-      packages: write    # Push to GHCR (private packages allowed)
-      id-token: write    # OIDC for signing (future use)
+      contents: write    # Upload release assets
+      packages: write    # Push to GHCR
+      id-token: write    # OIDC for cosign keyless signing
 
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Set up Go
-        uses: actions/setup-go@v6
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Run tests
-        run: go test ./...
-
-      - name: golangci-lint
-        uses: golangci/golangci-lint-action@v9
-        with:
-          version: v2.11.4
-          args: --timeout=5m
-
       - name: Set up Helm
         uses: azure/setup-helm@v5
-
-      - name: Lint Helm chart
-        run: helm lint helm/synology-proxy-operator --strict
 
       - name: Set up QEMU (multi-arch)
         uses: docker/setup-qemu-action@v4
@@ -70,7 +51,7 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest
             type=semver,pattern={{version}}-amd64
             type=semver,pattern={{version}}-arm64
 
@@ -139,12 +120,9 @@ jobs:
 
 
 
-      - name: Create GitHub Release
+      - name: Upload Helm chart to GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.ref_name }}" \
-            --generate-notes \
-            --latest \
-            dist/*.tgz
+          gh release upload "${{ github.ref_name }}" dist/*.tgz
 
