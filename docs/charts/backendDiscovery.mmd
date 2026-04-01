@@ -1,0 +1,10 @@
+```mermaid
+flowchart TD
+    A{spec.serviceRef set?} -->|Yes| B["Use LoadBalancer ExternalIP\nof referenced Service"]
+    A -->|No| C{spec.ingressRef set?}
+    C -->|Yes| D["Use status IP\nof referenced Ingress"]
+    C -->|No| E["Auto-scan rule namespace\nfor first LoadBalancer Service"]
+    B --> Z[Resolved destination]
+    D --> Z
+    E --> Z
+```

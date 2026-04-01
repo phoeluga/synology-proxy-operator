@@ -1,12 +1,11 @@
 <p align="center">
-    <img src="docs/images/synoProxyOperator_1.png" alt="" width="80%" >
+    <img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/synoProxyOperator_1.png" alt="" style="border-radius: 13px;" width="80%" >
 </p>
 
 
 [![CI](https://github.com/phoeluga/synology-proxy-operator/actions/workflows/ci.yaml/badge.svg)](https://github.com/phoeluga/synology-proxy-operator/actions/workflows/ci.yaml)
 [![Release](https://img.shields.io/github/v/release/phoeluga/synology-proxy-operator?label=latest%20release)](https://github.com/phoeluga/synology-proxy-operator/releases)
-<!-- [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/synology-proxy-operator)](https://artifacthub.io/packages/helm/synology-proxy-operator/synology-proxy-operator) -->
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/synology-proxy-operator)](https://artifacthub.io/packages/search?repo=synology-proxy-operator)
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/synology-proxy-operator)](https://artifacthub.io/packages/helm/synology-proxy-operator/synology-proxy-operator)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/phoeluga/synology-proxy-operator)](go.mod)
 [![Go Report Card](https://goreportcard.com/badge/github.com/phoeluga/synology-proxy-operator)](https://goreportcard.com/report/github.com/phoeluga/synology-proxy-operator)
 ![GitHub repo size](https://img.shields.io/github/repo-size/phoeluga/synology-proxy-operator)
@@ -28,33 +27,9 @@ When a LoadBalancer IP changes, you update it manually. When you remove an app, 
 
 ## How it works
 
-```mermaid
-flowchart LR
-    subgraph cluster["Kubernetes Cluster"]
-        direction TB
-        svc["☸ Service / Ingress\n―――――――――――――\nannotated with\nsynology.proxy/enabled"]
-        argo["☸ ArgoCD Application\n―――――――――――――\nannotated with\nsynology.proxy/enabled"]
-        manual["☸ SynologyProxyRule\n―――――――――――――\ncreated manually"]
-        crd["☸ SynologyProxyRule CRD\n(internal state)"]
-
-        svc -->|"auto-creates"| crd
-        argo -->|"auto-creates"| crd
-        manual --> crd
-    end
-
-    subgraph operator["Operator"]
-        rec["SynologyProxyRule\nReconciler"]
-    end
-
-    subgraph dsm["Synology DSM"]
-        proxy["Reverse Proxy Rules"]
-        tls["TLS Certificates"]
-    end
-
-    crd --> rec
-    rec -->|"upsert / delete"| proxy
-    rec -->|"assign matching cert"| tls
-```
+<p align="center">
+    <img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/chart_howItWorks.png" alt="" width="95%" >
+</p>
 
 The operator runs three controllers:
 
@@ -74,23 +49,9 @@ When the operator creates a reverse proxy rule in DSM, the Synology **DNS Server
 
 Pair this with the following DNS chain for a fully automated home lab setup:
 
-```mermaid
-flowchart LR
-    client["Client\n(browser, app)"]
-
-    subgraph homelab["Home Lab"]
-        pihole["Pi-hole\n―――――――――\nAd blocking +\nlocal DNS resolver"]
-        synodns["Synology DNS Server\n―――――――――\nAuto-registers hostnames\nfrom reverse proxy rules"]
-        synoproxy["Synology Reverse Proxy\n―――――――――\nRoutes by hostname\nto Kubernetes services"]
-    end
-
-    cloudflare["Cloudflare 1.1.1.1\n(or any public DNS)"]
-
-    client -->|"DNS query"| pihole
-    pihole -->|"unknown domain →\nforward upstream"| synodns
-    synodns -->|"unknown domain →\nforward upstream"| cloudflare
-    client -->|"HTTPS request"| synoproxy
-```
+<p align="center">
+    <img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/chart_zeroTouch.png" alt="" width="95%" >
+</p>
 
 **How it works end-to-end:**
 
@@ -319,14 +280,9 @@ Each hostname gets its own DSM record and certificate assignment.
 
 When `spec.sourceHost` is empty the operator derives it automatically:
 
-```mermaid
-flowchart TD
-    A{synology.proxy/source-host\nannotation set?} -->|Yes| Z["Use annotation value\ne.g. myapp.home.example.com"]
-    A -->|No| B{"object name\n+ DEFAULT_DOMAIN"}
-    B -->|DEFAULT_DOMAIN set| C["&lt;name&gt;.&lt;DEFAULT_DOMAIN&gt;\ne.g. myapp.home.example.com"]
-    C --> Z
-    B -->|not set| E["Error — cannot derive hostname"]
-```
+<p align="center">
+    <img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/chart_hostnameDerivation.png" alt="" width="95%" >
+</p>
 
 | Mode | Name used for derivation |
 |---|---|
@@ -352,16 +308,9 @@ Certificate assignment is only called when the proxy record was just created or 
 
 When `destinationHost` / `destinationPort` are not set:
 
-```mermaid
-flowchart TD
-    A{spec.serviceRef set?} -->|Yes| B["Use LoadBalancer ExternalIP\nof referenced Service"]
-    A -->|No| C{spec.ingressRef set?}
-    C -->|Yes| D["Use status IP\nof referenced Ingress"]
-    C -->|No| E["Auto-scan rule namespace\nfor first LoadBalancer Service"]
-    B --> Z[Resolved destination]
-    D --> Z
-    E --> Z
-```
+<p align="center">
+    <img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/chart_backendDiscovery.png" alt="" width="95%" >
+</p>
 
 ---
 

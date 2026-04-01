@@ -1,0 +1,27 @@
+```mermaid
+flowchart LR
+    subgraph cluster["Kubernetes Cluster"]
+        direction TB
+        svc["☸ Service / Ingress\n―――――――――――――\nannotated with\nsynology.proxy/enabled"]
+        argo["☸ ArgoCD Application\n―――――――――――――\nannotated with\nsynology.proxy/enabled"]
+        manual["☸ SynologyProxyRule\n―――――――――――――\ncreated manually"]
+        crd["☸ SynologyProxyRule CRD\n(internal state)"]
+
+        svc -->|"auto-creates"| crd
+        argo -->|"auto-creates"| crd
+        manual --> crd
+    end
+
+    subgraph operator["Operator"]
+        rec["SynologyProxyRule\nReconciler"]
+    end
+
+    subgraph dsm["Synology DSM"]
+        proxy["Reverse Proxy Rules"]
+        tls["TLS Certificates"]
+    end
+
+    crd --> rec
+    rec -->|"upsert / delete"| proxy
+    rec -->|"assign matching cert"| tls
+```

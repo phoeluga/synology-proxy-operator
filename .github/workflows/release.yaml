@@ -71,19 +71,41 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}-amd64
+            type=semver,pattern={{version}}-arm64
 
-      - name: Build and push Docker image
+      - name: Build and push linux/amd64
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}-amd64
           labels: ${{ steps.meta.outputs.labels }}
-          provenance: false
-          sbom: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Build and push linux/arm64
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}-arm64
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create and push manifest index
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          MINOR="${TAG%.*}"
+          docker buildx imagetools create \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG} \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${MINOR} \
+            --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}-amd64 \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${TAG}-arm64
 
       # ── Helm chart release ────────────────────────────────────────────────
       - name: Update chart version to match tag
@@ -111,9 +133,3 @@ jobs:
             --latest \
             dist/*.tgz
 
-      - name: Delete untagged digests
-        uses: actions/delete-package-versions@v5
-        with:
-          package-name: synology-proxy-operator
-          package-type: container
-          delete-only-untagged-versions: true

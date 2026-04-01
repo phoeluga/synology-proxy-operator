@@ -1,0 +1,17 @@
+```mermaid
+flowchart LR
+    client["Client\n(browser, app)"]
+
+    subgraph homelab["Home Lab"]
+        pihole["Pi-hole\n―――――――――\nAd blocking +\nlocal DNS resolver"]
+        synodns["Synology DNS Server\n―――――――――\nAuto-registers hostnames\nfrom reverse proxy rules"]
+        synoproxy["Synology Reverse Proxy\n―――――――――\nRoutes by hostname\nto Kubernetes services"]
+    end
+
+    cloudflare["Cloudflare 1.1.1.1\n(or any public DNS)"]
+
+    client -->|"DNS query"| pihole
+    pihole -->|"unknown domain →\nforward upstream"| synodns
+    synodns -->|"unknown domain →\nforward upstream"| cloudflare
+    client -->|"HTTPS request"| synoproxy
+```
