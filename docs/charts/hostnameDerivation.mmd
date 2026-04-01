@@ -1,0 +1,8 @@
+```mermaid
+flowchart TD
+    A{synology.proxy/source-host\nannotation set?} -->|Yes| Z["Use annotation value\ne.g. myapp.home.example.com"]
+    A -->|No| B{"object name\n+ DEFAULT_DOMAIN"}
+    B -->|DEFAULT_DOMAIN set| C["&lt;name&gt;.&lt;DEFAULT_DOMAIN&gt;\ne.g. myapp.home.example.com"]
+    C --> Z
+    B -->|not set| E["Error — cannot derive hostname"]
+```

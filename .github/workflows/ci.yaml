@@ -118,21 +118,29 @@ jobs:
       - name: Set up QEMU (multi-arch)
         uses: docker/setup-qemu-action@v4
 
-      - name: Build and push :main
+      - name: Build and push :main-amd64
         uses: docker/build-push-action@v7
         with:
           context: .
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
-          tags: ghcr.io/phoeluga/synology-proxy-operator:main
-          provenance: false
-          sbom: false
+          tags: ghcr.io/phoeluga/synology-proxy-operator:main-amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Delete untagged digests
-        uses: actions/delete-package-versions@v5
+      - name: Build and push :main-arm64
+        uses: docker/build-push-action@v7
         with:
-          package-name: synology-proxy-operator
-          package-type: container
-          delete-only-untagged-versions: true
+          context: .
+          platforms: linux/arm64
+          push: true
+          tags: ghcr.io/phoeluga/synology-proxy-operator:main-arm64
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Create and push :main manifest index
+        run: |
+          docker buildx imagetools create \
+            --tag ghcr.io/phoeluga/synology-proxy-operator:main \
+            ghcr.io/phoeluga/synology-proxy-operator:main-amd64 \
+            ghcr.io/phoeluga/synology-proxy-operator:main-arm64
