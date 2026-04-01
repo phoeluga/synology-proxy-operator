@@ -1,0 +1,48 @@
+name: ArtifactHub Ownership Verification
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository_id:
+        description: "ArtifactHub Repository ID (UUID from Control Panel)"
+        required: true
+      owner_name:
+        description: "ArtifactHub owner name"
+        required: true
+      owner_email:
+        description: "ArtifactHub owner email (optional)"
+        required: false
+
+jobs:
+  push-ownership-file:
+    name: Push artifacthub-repo.yml to GHCR
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+
+    steps:
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up ORAS
+        uses: oras-project/setup-oras@v1
+
+      - name: Build and push artifacthub-repo.yml
+        run: |
+          cat > artifacthub-repo.yml << EOF
+          repositoryID: ${{ inputs.repository_id }}
+          owners:
+            - name: ${{ inputs.owner_name }}
+          EOF
+
+          if [ -n "${{ inputs.owner_email }}" ]; then
+            echo "      email: ${{ inputs.owner_email }}" >> artifacthub-repo.yml
+          fi
+
+          oras push ghcr.io/phoeluga/charts/artifacthub-repo:latest \
+            --config /dev/null:application/vnd.oci.image.config.v1+json \
+            artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml
