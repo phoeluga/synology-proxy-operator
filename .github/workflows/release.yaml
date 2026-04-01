@@ -87,7 +87,7 @@ jobs:
             --tag ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}-amd64 \
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION}-arm64
-          DIGEST=$(docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION} --format '{{.Manifest.Digest}}')
+          DIGEST=$(docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${VERSION} --format '{{.Digest}}')
           echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
 
       - name: Install cosign
