@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.5](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.4...v0.0.5) (2026-04-02)
+
+
+### Bug Fixes
+
+* restructure CI/CD workflows, sign Helm chart, fix ArtifactHub verification ([510bd3e](https://github.com/phoeluga/synology-proxy-operator/commit/510bd3e830e92836f530300132041415f34ce363))
+* Updated CI execution check ([f53e516](https://github.com/phoeluga/synology-proxy-operator/commit/f53e516b0c19b1812c88113184a7c55d2f3c1ef2))
+* Updated CI/CD naming ([ab5d955](https://github.com/phoeluga/synology-proxy-operator/commit/ab5d955812a0be439550228bb137272df4e78a94))
+
 ## [0.0.4](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.3...v0.0.4) (2026-04-01)
 
 
