@@ -35,17 +35,22 @@ jobs:
         uses: oras-project/setup-oras@v1.2.4
 
       - name: Build and push artifacthub-repo.yml
+        env:
+          REPO_ID: ${{ inputs.repository_id }}
+          OWNER_NAME: ${{ inputs.owner_name }}
+          OWNER_EMAIL: ${{ inputs.owner_email }}
         run: |
-          cat > artifacthub-repo.yml << EOF
-          repositoryID: ${{ inputs.repository_id }}
-          owners:
-            - name: ${{ inputs.owner_name }}
-          EOF
+          {
+            echo "repositoryID: ${REPO_ID}"
+            echo "owners:"
+            echo "  - name: ${OWNER_NAME}"
+            if [ -n "${OWNER_EMAIL}" ]; then
+              echo "    email: ${OWNER_EMAIL}"
+            fi
+          } > artifacthub-repo.yml
 
-          if [ -n "${{ inputs.owner_email }}" ]; then
-            echo "      email: ${{ inputs.owner_email }}" >> artifacthub-repo.yml
-          fi
+          cat artifacthub-repo.yml
 
-          oras push ghcr.io/phoeluga/charts/artifacthub-repo:latest \
+          oras push ghcr.io/phoeluga/charts/synology-proxy-operator/artifacthub-repo:latest \
             --config /dev/null:application/vnd.oci.image.config.v1+json \
             artifacthub-repo.yml:application/vnd.cncf.artifacthub.repository-metadata.layer.v1.yaml

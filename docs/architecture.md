@@ -1,4 +1,6 @@
-# <img src="images/synoProxyOperator_4.png" alt="" width="50"/> Architecture
+<img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/synoProxyOperator_4.png" alt="" style="float: right; border-radius: 11px;"  width="86"/>
+
+# Architecture
 
 This document describes the internal design of the Synology Proxy Operator.
 
@@ -180,12 +182,7 @@ synology-proxy-operator/
 │       └── templates/
 ├── hack/
 │   └── dev/                             # local dev fixtures (namespace, nginx, proxy rule, ArgoCD app)
-├── docs/
-│   ├── architecture.md                  # this file
-│   ├── development.md
-│   ├── local-testing.md
-│   └── release.md
-└── .github/workflows/
-    ├── ci.yaml                          # PR gates + :main image on main merge
-    └── release.yaml                     # semver tag → multi-arch image + Helm release
+└── docs/
+    └── architecture.md                  # this file
+
 ```

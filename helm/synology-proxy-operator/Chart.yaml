@@ -26,6 +26,9 @@ annotations:
   artifacthub.io/license: Apache-2.0
   artifacthub.io/operator: "true"
   artifacthub.io/operatorCapabilities: Basic Install
+  artifacthub.io/signKey: |
+    fingerprint: ""
+    url: https://fulcio.sigstore.dev
   artifacthub.io/links: |
     - name: Documentation
       url: https://github.com/phoeluga/synology-proxy-operator#readme
