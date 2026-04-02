@@ -1,4 +1,4 @@
-name: CICD-ReleaseIntegration
+name: CI-PrepareRelease
 
 on:
   push:

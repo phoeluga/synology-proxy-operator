@@ -1,4 +1,4 @@
-name: CD-ReleaseNewVersion
+name: CD-Release
 
 on:
   push:
@@ -16,7 +16,7 @@ env:
 
 jobs:
   ci:
-    uses: ./.github/workflows/ci.yaml
+    uses: ./.github/workflows/ci-build-and-test.yaml
 
   release:
     name: Build & Push Docker image + Helm chart
