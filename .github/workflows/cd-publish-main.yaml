@@ -1,4 +1,4 @@
-name: Publish
+name: CD-PublishMain
 
 # Runs after a push to main — publishes the :main dev image.
 on:
