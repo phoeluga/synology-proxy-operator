@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.0.6](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.5...v0.0.6) (2026-04-03)
+
+
+### Bug Fixes
+
+* add missing podSecurityContext and securityContext properties to values schema ([46b0870](https://github.com/phoeluga/synology-proxy-operator/commit/46b08703b916f8037bbdcec355c0ad1afa282af7))
+* distributed SPR namespaces, correct print columns, deepcopy generation ([6061581](https://github.com/phoeluga/synology-proxy-operator/commit/60615814a1ba9e0bb9ffe53215428176e0207c43))
+* replace yq with python in schema-drift check ([84f439f](https://github.com/phoeluga/synology-proxy-operator/commit/84f439fa37b5de8785a104621cf6bc5501b089c4))
+
 ## [0.0.5](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.4...v0.0.5) (2026-04-02)
 
 
