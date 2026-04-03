@@ -63,13 +63,22 @@ func (r *ArgoApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 	return ctrl.Result{}, r.reconcileRule(ctx, log, app)
 }
 
+// ruleNamespaceFor returns the namespace where the SynologyProxyRule for app should live.
+// Priority: explicit RuleNamespace > app destination namespace > app namespace.
+func (r *ArgoApplicationReconciler) ruleNamespaceFor(app *argo.Application) string {
+	if r.RuleNamespace != "" {
+		return r.RuleNamespace
+	}
+	if app.Spec.Destination.Namespace != "" {
+		return app.Spec.Destination.Namespace
+	}
+	return app.Namespace
+}
+
 // reconcileRule creates or updates the SynologyProxyRule owned by this Application.
 func (r *ArgoApplicationReconciler) reconcileRule(ctx context.Context, log logr.Logger, app *argo.Application) error {
 	ruleName := ruleNameForApp(app)
-	ruleNS := r.RuleNamespace
-	if ruleNS == "" {
-		ruleNS = app.Namespace
-	}
+	ruleNS := r.ruleNamespaceFor(app)
 
 	desired := r.buildRule(app, ruleName, ruleNS)
 
@@ -103,11 +112,10 @@ func (r *ArgoApplicationReconciler) reconcileRule(ctx context.Context, log logr.
 
 // deleteRuleIfExists deletes a SynologyProxyRule only if it was created by this
 // operator. Same-namespace rules are identified by owner reference; cross-namespace
-// rules (Application in argocd, rule in synology-proxy-operator) by managed-by labels.
-// Rules added manually have neither and are left alone.
+// rules by managed-by labels. Rules added manually have neither and are left alone.
 func (r *ArgoApplicationReconciler) deleteRuleIfExists(ctx context.Context, log logr.Logger, app *argo.Application) error {
 	rule := &proxyv1alpha1.SynologyProxyRule{}
-	err := r.Get(ctx, client.ObjectKey{Name: ruleNameForApp(app), Namespace: r.RuleNamespace}, rule)
+	err := r.Get(ctx, client.ObjectKey{Name: ruleNameForApp(app), Namespace: r.ruleNamespaceFor(app)}, rule)
 	if apierrors.IsNotFound(err) {
 		return nil
 	}

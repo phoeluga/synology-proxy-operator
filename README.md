@@ -3,12 +3,14 @@
 </p>
 
 
-[![CI](https://github.com/phoeluga/synology-proxy-operator/actions/workflows/ci.yaml/badge.svg)](https://github.com/phoeluga/synology-proxy-operator/actions/workflows/ci.yaml)
+[![CI](https://github.com/phoeluga/synology-proxy-operator/actions/workflows/ci-build-and-test.yaml/badge.svg)](https://github.com/phoeluga/synology-proxy-operator/actions/workflows/ci-build-and-test.yaml)
 [![Release](https://img.shields.io/github/v/release/phoeluga/synology-proxy-operator?label=latest%20release)](https://github.com/phoeluga/synology-proxy-operator/releases)
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/synology-proxy-operator)](https://artifacthub.io/packages/helm/synology-proxy-operator/synology-proxy-operator)
-[![Go Version](https://img.shields.io/github/go-mod/go-version/phoeluga/synology-proxy-operator)](go.mod)
 [![Go Report Card](https://goreportcard.com/badge/github.com/phoeluga/synology-proxy-operator)](https://goreportcard.com/report/github.com/phoeluga/synology-proxy-operator)
-![GitHub repo size](https://img.shields.io/github/repo-size/phoeluga/synology-proxy-operator)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/phoeluga/synology-proxy-operator)](go.mod)
+[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/synology-proxy-operator)](https://artifacthub.io/packages/helm/synology-proxy-operator/synology-proxy-operator)
+
+[![Donate](https://img.shields.io/static/v1?label=Treat%20a%20coffee&message=donate%20a%20tip&color=2a9cde&logo=data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjQgMjQiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHBhdGggZD0iTTcgMjJoMTBhMSAxIDAgMCAwIC45OS0uODU4TDE5Ljg2NyA4SDIxVjZoLTEuMzgybC0xLjcyNC0zLjQ0N0EuOTk4Ljk5OCAwIDAgMCAxNyAySDdjLS4zNzkgMC0uNzI1LjIxNC0uODk1LjU1M0w0LjM4MiA2SDN2MmgxLjEzM0w2LjAxIDIxLjE0MkExIDEgMCAwIDAgNyAyMnptMTAuNDE4LTExSDYuNTgybC0uNDI5LTNoMTEuNjkzbC0uNDI4IDN6bS05LjU1MSA5LS40MjktM2g5LjEyM2wtLjQyOSAzSDcuODY3ek03LjYxOCA0aDguNzY0bDEgMkg2LjYxOGwxLTJ6IiBmaWxsPSIjZWRmMmZhIiBjbGFzcz0iZmlsbC0wMDAwMDAiPjwvcGF0aD48L3N2Zz4=)](https://www.paypal.com/donate/?hosted_button_id=9MLB29CKX5674)
+
 
 
 > **Deploy an app. Get a working HTTPS hostname. Automatically.**
@@ -114,7 +116,22 @@ helm upgrade --install synology-proxy-operator \
 
 The Secret must have keys: `SYNOLOGY_URL`, `SYNOLOGY_USER`, `SYNOLOGY_PASSWORD`, `SYNOLOGY_SKIP_TLS_VERIFY`.
 
-### GitOps (ArgoCD multi-source)
+### GitOps (ArgoCD + Helm)
+
+The operator references credentials via `synology.existingSecret`. Create the Secret separately — using Sealed Secrets, External Secrets Operator, or a one-time `kubectl` command — before ArgoCD syncs the application.
+
+**Step 1 — create the credentials Secret** (once, outside ArgoCD):
+
+```bash
+kubectl create secret generic synology-credentials \
+  --namespace synology-proxy-operator \
+  --from-literal=SYNOLOGY_URL="https://192.168.1.x:5001" \
+  --from-literal=SYNOLOGY_USER="admin" \
+  --from-literal=SYNOLOGY_PASSWORD="secret" \
+  --from-literal=SYNOLOGY_SKIP_TLS_VERIFY="false"
+```
+
+**Step 2 — deploy with ArgoCD:**
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -123,19 +140,26 @@ metadata:
   name: synology-proxy-operator
   namespace: argocd
 spec:
-  sources:
-    - repoURL: https://github.com/phoeluga/synology-proxy-operator
-      path: config
-      targetRevision: main
-    - repoURL: https://github.com/your-org/your-cluster-repo
-      path: clusters/prod/infrastructure/synology-proxy-operator/credentials
-      targetRevision: HEAD
+  source:
+    repoURL: ghcr.io/phoeluga/charts
+    chart: synology-proxy-operator
+    targetRevision: latest
+    helm:
+      valuesObject:
+        operator:
+          defaultDomain: "home.example.com"
+        synology:
+          existingSecret: synology-credentials
   destination:
     server: https://kubernetes.default.svc
     namespace: synology-proxy-operator
+  syncPolicy:
+    automated: {}
+    syncOptions:
+      - CreateNamespace=true
 ```
 
-The `credentials/` directory should contain a Secret (or SealedSecret) with the keys above.
+> For a fully GitOps credential workflow, encrypt the Secret with [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets) or manage it via [External Secrets Operator](https://external-secrets.io) and commit only the encrypted/reference form to your cluster repo.
 
 ---
 
@@ -281,7 +305,7 @@ Each hostname gets its own DSM record and certificate assignment.
 When `spec.sourceHost` is empty the operator derives it automatically:
 
 <p align="center">
-    <img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/chart_hostnameDerivation.png" alt="" width="95%" >
+    <img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/chart_hostnameDerivation.png" alt="" width="70%" >
 </p>
 
 | Mode | Name used for derivation |
@@ -309,7 +333,7 @@ Certificate assignment is only called when the proxy record was just created or 
 When `destinationHost` / `destinationPort` are not set:
 
 <p align="center">
-    <img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/chart_backendDiscovery.png" alt="" width="95%" >
+    <img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/chart_backendDiscovery.png" alt="" width="70%" >
 </p>
 
 ---

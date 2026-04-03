@@ -42,9 +42,11 @@ Manual resource  ─────────────────────
 Watches Services and Ingresses with the annotation `synology.proxy/enabled: "true"`. Uses an adapter pattern internally — `serviceReconcileAdapter` and `ingressReconcileAdapter` share a common `reconcileObject()` function.
 
 **Behaviour:**
-- Creates a `SynologyProxyRule` in `RULE_NAMESPACE` when an annotated object appears
+- Creates a `SynologyProxyRule` in the source object's namespace (or `RULE_NAMESPACE` if set) when an annotated object appears
 - Updates the rule spec only when it has changed (equality check before write)
 - Deletes the rule when the annotation is removed or the object is deleted
+
+**Rule naming:** `<namespace>--<name>` — the double-dash is an intentional separator to prevent collisions when different namespaces have services with the same name (e.g. namespace `app-headlamp` + service `headlamp` → `app-headlamp--headlamp`).
 
 **Reads annotations:** `source-host`, `acl-profile`, `destination-protocol`, `assign-certificate`
 
@@ -57,10 +59,12 @@ Watches Services and Ingresses with the annotation `synology.proxy/enabled: "tru
 Watches ArgoCD `Application` objects (GVK: `argoproj.io/v1alpha1/Application`). Disabled gracefully at startup if ArgoCD CRDs are absent — no restart needed when they appear.
 
 **Behaviour:**
-- Creates a `SynologyProxyRule` in `RULE_NAMESPACE` when an annotated Application appears
+- Creates a `SynologyProxyRule` in the Application's destination namespace (or `RULE_NAMESPACE` if set) when an annotated Application appears
 - Sets `spec.managedByApp` to the Application name for ownership tracking
 - Reads `service-ref` and `ingress-ref` annotations to build explicit backend references
 - Auto-scans the Application's destination namespace when no refs are provided
+
+**Rule namespace resolution** (`ruleNamespaceFor`): explicit `RULE_NAMESPACE` → `app.Spec.Destination.Namespace` → `app.Namespace`. Cross-namespace owner references are forbidden in Kubernetes, so ownership is tracked via labels (`proxy.synology.io/managed-by-argo-app`) when the rule and Application are in different namespaces.
 
 **Namespace filtering:** `WATCH_NAMESPACE` restricts which namespaces are observed.
 
@@ -89,7 +93,7 @@ Reconcile(rule)
         │     └── if written: AssignCertificate()
         ├── reconcile stale records (deleted from spec) → DeleteProxyRecord()
         │     └── on error: keep in status, requeue
-        └── update status.ManagedRecords + conditions
+        └── update status.ManagedRecords + status.ManagedRecordCount + conditions
 ```
 
 **Requeue:** every 30 seconds (`requeueAfter`) to catch external DSM drift.
@@ -142,8 +146,11 @@ Discovery result is written to `status.resolvedDestinationHost` and `status.reso
 
 **Key design choices:**
 - `status.managedRecords` is the source of truth for which DSM records exist. Each entry holds the DSM UUID (for reference), the description (idempotency key), and the source hostname.
+- `status.managedRecordCount` mirrors `len(status.managedRecords)` as a dedicated integer field, used by the `kubectl get spr` RECORDS print column (JSONPath cannot count arrays directly).
 - `spec.description` defaults to `<namespace>/<name>` when empty — this prevents cross-namespace collisions when two rules have the same name.
 - `spec.additionalSourceHosts` causes one DSM record per hostname. All records are tracked in `status.managedRecords`.
+- Print columns: SOURCE HOST shows `status.managedRecords[0].sourceHost` (the resolved primary hostname, not `spec.sourceHost` which is intentionally left empty when auto-derived from defaultDomain).
+- `api/v1alpha1/groupversion_info.go` carries `+kubebuilder:object:generate=true` — without it `make generate` only produces deepcopy for root types (`SynologyProxyRule`, `SynologyProxyRuleList`) and omits Spec/Status/sub-types, causing a build failure.
 
 ---
 
@@ -171,6 +178,8 @@ synology-proxy-operator/
 │       ├── certificate.go
 │       └── acl.go
 ├── config/
+│   ├── default/
+│   │   └── kustomization.yaml           # root overlay — kubectl apply -k config/default/
 │   ├── crd/bases/                       # generated CRD manifests
 │   ├── rbac/                            # ClusterRole, ClusterRoleBinding, ServiceAccount
 │   └── manager/                         # Deployment + ConfigMap

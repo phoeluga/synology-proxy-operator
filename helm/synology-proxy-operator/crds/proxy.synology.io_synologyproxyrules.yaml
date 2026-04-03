@@ -2,168 +2,304 @@
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
-  name: synologyproxyrules.proxy.synology.io
   annotations:
-    controller-gen.kubebuilder.io/version: v0.16.1
+    controller-gen.kubebuilder.io/version: v0.17.3
+  name: synologyproxyrules.proxy.synology.io
 spec:
   group: proxy.synology.io
   names:
     kind: SynologyProxyRule
     listKind: SynologyProxyRuleList
     plural: synologyproxyrules
-    singular: synologyproxyrule
     shortNames:
-      - spr
+    - spr
+    singular: synologyproxyrule
   scope: Namespaced
   versions:
-    - name: v1alpha1
-      served: true
-      storage: true
-      subresources:
-        status: {}
-      additionalPrinterColumns:
-        - name: Source Host
-          type: string
-          jsonPath: .spec.sourceHost
-        - name: Destination
-          type: string
-          jsonPath: .status.resolvedDestinationHost
-        - name: Synced
-          type: boolean
-          jsonPath: .status.synced
-        - name: UUID
-          type: string
-          jsonPath: .status.uuid
-        - name: Age
-          type: date
-          jsonPath: .metadata.creationTimestamp
-      schema:
-        openAPIV3Schema:
-          type: object
-          description: >
-            SynologyProxyRule represents one reverse proxy entry managed
-            in Synology DSM. Create one per service you want to expose.
-          properties:
-            apiVersion:
-              type: string
-            kind:
-              type: string
-            metadata:
-              type: object
-            spec:
-              type: object
-              required:
-                - sourceHost
-              properties:
-                sourceHost:
+  - additionalPrinterColumns:
+    - jsonPath: .status.managedRecords[0].sourceHost
+      name: Source Host
+      type: string
+    - jsonPath: .status.resolvedDestinationHost
+      name: Destination
+      type: string
+    - jsonPath: .status.synced
+      name: Synced
+      type: boolean
+    - jsonPath: .status.managedRecordCount
+      name: Records
+      type: integer
+    - jsonPath: .metadata.creationTimestamp
+      name: Age
+      type: date
+    name: v1alpha1
+    schema:
+      openAPIV3Schema:
+        description: |-
+          SynologyProxyRule is the Schema for the synologyproxyrules API.
+          Each resource represents one reverse proxy entry managed in Synology DSM.
+        properties:
+          apiVersion:
+            description: |-
+              APIVersion defines the versioned schema of this representation of an object.
+              Servers should convert recognized schemas to the latest internal value, and
+              may reject unrecognized values.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources
+            type: string
+          kind:
+            description: |-
+              Kind is a string value representing the REST resource this object represents.
+              Servers may infer this from the endpoint the client submits requests to.
+              Cannot be updated.
+              In CamelCase.
+              More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: SynologyProxyRuleSpec defines the desired state of a reverse
+              proxy rule on Synology DSM.
+            properties:
+              aclProfile:
+                description: |-
+                  ACLProfile is the name of the Synology Access Control Profile to apply.
+                  Uses the operator-level default when empty.
+                type: string
+              additionalSourceHosts:
+                description: |-
+                  AdditionalSourceHosts lists extra public FQDNs that should each get their own
+                  DSM reverse proxy record pointing at the same backend.
+                  Each additional host creates a separate record in Synology DSM with its own
+                  certificate assigned automatically.
+                items:
                   type: string
-                  description: Public FQDN the reverse proxy listens on (frontend).
-                sourcePort:
-                  type: integer
-                  default: 443
-                  description: HTTPS port the reverse proxy listens on.
-                destinationHost:
-                  type: string
-                  description: >
-                    Backend IP or hostname. Auto-discovered when empty
-                    (requires serviceRef, ingressRef, or a LoadBalancer in the namespace).
-                destinationPort:
-                  type: integer
-                  description: Backend port. Auto-discovered when 0.
-                destinationProtocol:
-                  type: string
-                  default: http
-                  enum: [http, https]
-                  description: Backend protocol.
-                aclProfile:
-                  type: string
-                  description: Synology Access Control Profile name.
-                assignCertificate:
-                  type: boolean
-                  default: true
-                  description: >
-                    Automatically assign the best matching certificate from DSM.
-                customHeaders:
-                  type: array
-                  description: >
-                    HTTP headers injected into every proxied request.
-                    Defaults to WebSocket upgrade headers when omitted.
-                  items:
-                    type: object
-                    required: [name, value]
-                    properties:
-                      name:
-                        type: string
-                      value:
-                        type: string
-                serviceRef:
-                  type: object
-                  description: LoadBalancer Service to use for backend auto-discovery.
-                  required: [name]
+                type: array
+              assignCertificate:
+                default: true
+                description: |-
+                  AssignCertificate controls whether the operator automatically assigns
+                  the best matching wildcard/SAN certificate from Synology. Defaults to true.
+                type: boolean
+              customHeaders:
+                description: |-
+                  CustomHeaders are HTTP headers added to every proxied request.
+                  When nil, the operator injects the default WebSocket upgrade headers.
+                items:
+                  description: CustomHeader is an HTTP request header injected by
+                    the reverse proxy.
                   properties:
                     name:
+                      description: Name is the header name.
                       type: string
-                    namespace:
+                    value:
+                      description: Value is the header value (nginx variables are
+                        accepted, e.g. $http_upgrade).
                       type: string
-                ingressRef:
+                  required:
+                  - name
+                  - value
                   type: object
-                  description: Ingress to use for backend auto-discovery (fallback after serviceRef).
-                  required: [name]
+                type: array
+              description:
+                description: |-
+                  Description is the human-readable label stored on the Synology record.
+                  Defaults to the SynologyProxyRule resource name.
+                type: string
+              destinationHost:
+                description: |-
+                  DestinationHost is the backend IP or hostname to proxy traffic to.
+                  When empty, the operator will auto-discover it from ServiceRef or IngressRef.
+                type: string
+              destinationPort:
+                description: |-
+                  DestinationPort is the backend port to proxy traffic to.
+                  When 0, the operator will auto-discover it from ServiceRef or IngressRef.
+                type: integer
+              destinationProtocol:
+                default: http
+                description: 'DestinationProtocol is the backend protocol: "http"
+                  or "https". Defaults to "http".'
+                enum:
+                - http
+                - https
+                type: string
+              ingressRef:
+                description: |-
+                  IngressRef points to an Ingress whose status IP will be used as the backend
+                  when DestinationHost / DestinationPort are not set and ServiceRef is absent.
+                properties:
+                  name:
+                    description: Name of the referenced object.
+                    type: string
+                  namespace:
+                    description: Namespace of the referenced object. Defaults to the
+                      SynologyProxyRule namespace.
+                    type: string
+                required:
+                - name
+                type: object
+              managedByApp:
+                description: |-
+                  ManagedByApp records the ArgoCD Application name that owns this rule.
+                  Set automatically by the ArgoCD watcher; do not set manually.
+                type: string
+              serviceRef:
+                description: |-
+                  ServiceRef points to a LoadBalancer Service whose ExternalIP/port will be used
+                  as the backend when DestinationHost / DestinationPort are not set.
+                properties:
+                  name:
+                    description: Name of the referenced object.
+                    type: string
+                  namespace:
+                    description: Namespace of the referenced object. Defaults to the
+                      SynologyProxyRule namespace.
+                    type: string
+                required:
+                - name
+                type: object
+              sourceHost:
+                description: |-
+                  SourceHost is the primary public FQDN that the reverse proxy will listen on (frontend).
+                  When empty the operator derives the hostname from the referenced Service or Ingress name
+                  combined with the operator's configured defaultDomain (e.g. "nginx.example.com").
+                  The annotation synology.proxy/source-host on the Service or Ingress overrides the derived name.
+                type: string
+              sourcePort:
+                default: 443
+                description: SourcePort is the HTTPS port the reverse proxy listens
+                  on. Defaults to 443.
+                type: integer
+              timeouts:
+                description: Timeouts configures per-proxy TCP/HTTP timeouts (seconds).
+                  Defaults to 60 each.
+                properties:
+                  connect:
+                    default: 60
+                    description: Connect timeout in seconds. Defaults to 60.
+                    type: integer
+                  read:
+                    default: 60
+                    description: Read timeout in seconds. Defaults to 60.
+                    type: integer
+                  send:
+                    default: 60
+                    description: Send timeout in seconds. Defaults to 60.
+                    type: integer
+                type: object
+            type: object
+          status:
+            description: SynologyProxyRuleStatus defines the observed state of SynologyProxyRule.
+            properties:
+              conditions:
+                description: Conditions holds standard Kubernetes status conditions.
+                items:
+                  description: Condition contains details for one aspect of the current
+                    state of this API Resource.
                   properties:
-                    name:
+                    lastTransitionTime:
+                      description: |-
+                        lastTransitionTime is the last time the condition transitioned from one status to another.
+                        This should be when the underlying condition changed.  If that is not known, then using the time when the API field changed is acceptable.
+                      format: date-time
                       type: string
-                    namespace:
+                    message:
+                      description: |-
+                        message is a human readable message indicating details about the transition.
+                        This may be an empty string.
+                      maxLength: 32768
                       type: string
-                timeouts:
+                    observedGeneration:
+                      description: |-
+                        observedGeneration represents the .metadata.generation that the condition was set based upon.
+                        For instance, if .metadata.generation is currently 12, but the .status.conditions[x].observedGeneration is 9, the condition is out of date
+                        with respect to the current state of the instance.
+                      format: int64
+                      minimum: 0
+                      type: integer
+                    reason:
+                      description: |-
+                        reason contains a programmatic identifier indicating the reason for the condition's last transition.
+                        Producers of specific condition types may define expected values and meanings for this field,
+                        and whether the values are considered a guaranteed API.
+                        The value should be a CamelCase string.
+                        This field may not be empty.
+                      maxLength: 1024
+                      minLength: 1
+                      pattern: ^[A-Za-z]([A-Za-z0-9_,:]*[A-Za-z0-9_])?$
+                      type: string
+                    status:
+                      description: status of the condition, one of True, False, Unknown.
+                      enum:
+                      - "True"
+                      - "False"
+                      - Unknown
+                      type: string
+                    type:
+                      description: type of condition in CamelCase or in foo.example.com/CamelCase.
+                      maxLength: 316
+                      pattern: ^([a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*/)?(([A-Za-z0-9][-A-Za-z0-9_.]*)?[A-Za-z0-9])$
+                      type: string
+                  required:
+                  - lastTransitionTime
+                  - message
+                  - reason
+                  - status
+                  - type
                   type: object
-                  description: Per-proxy TCP/HTTP timeouts (seconds).
+                type: array
+                x-kubernetes-list-map-keys:
+                - type
+                x-kubernetes-list-type: map
+              lastSyncTime:
+                description: LastSyncTime is the timestamp of the most recent successful
+                  sync.
+                format: date-time
+                type: string
+              managedRecordCount:
+                description: ManagedRecordCount is the number of DSM proxy records
+                  currently managed by this rule.
+                type: integer
+              managedRecords:
+                description: |-
+                  ManagedRecords lists all DSM proxy records currently managed by this rule
+                  (one per sourceHost / additionalSourceHosts entry).
+                items:
+                  description: ManagedRecord tracks a single DSM reverse proxy record
+                    created by the operator.
                   properties:
-                    connect:
-                      type: integer
-                      default: 60
-                    read:
-                      type: integer
-                      default: 60
-                    send:
-                      type: integer
-                      default: 60
-                description:
-                  type: string
-                  description: Human-readable label stored on the DSM record.
-                managedByApp:
-                  type: string
-                  description: ArgoCD Application name that owns this rule (set automatically).
-            status:
-              type: object
-              properties:
-                uuid:
-                  type: string
-                synced:
-                  type: boolean
-                lastSyncTime:
-                  type: string
-                  format: date-time
-                resolvedDestinationHost:
-                  type: string
-                resolvedDestinationPort:
-                  type: integer
-                conditions:
-                  type: array
-                  items:
-                    type: object
-                    required: [lastTransitionTime, message, reason, status, type]
-                    properties:
-                      lastTransitionTime:
-                        type: string
-                        format: date-time
-                      message:
-                        type: string
-                      observedGeneration:
-                        type: integer
-                        format: int64
-                      reason:
-                        type: string
-                      status:
-                        type: string
-                      type:
-                        type: string
+                    description:
+                      description: Description is the DSM record description used
+                        as the unique lookup key.
+                      type: string
+                    sourceHost:
+                      description: SourceHost is the public FQDN this record fronts.
+                      type: string
+                    uuid:
+                      description: UUID is the DSM record UUID.
+                      type: string
+                  required:
+                  - description
+                  - sourceHost
+                  - uuid
+                  type: object
+                type: array
+              resolvedDestinationHost:
+                description: ResolvedDestinationHost is the backend IP/hostname resolved
+                  during auto-discovery.
+                type: string
+              resolvedDestinationPort:
+                description: ResolvedDestinationPort is the backend port resolved
+                  during auto-discovery.
+                type: integer
+              synced:
+                description: Synced indicates whether the last reconciliation succeeded.
+                type: boolean
+            required:
+            - synced
+            type: object
+        type: object
+    served: true
+    storage: true
+    subresources:
+      status: {}

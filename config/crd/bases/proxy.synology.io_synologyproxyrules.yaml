@@ -17,7 +17,7 @@ spec:
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
-    - jsonPath: .spec.sourceHost
+    - jsonPath: .status.managedRecords[0].sourceHost
       name: Source Host
       type: string
     - jsonPath: .status.resolvedDestinationHost
@@ -26,7 +26,7 @@ spec:
     - jsonPath: .status.synced
       name: Synced
       type: boolean
-    - jsonPath: .status.managedRecords
+    - jsonPath: .status.managedRecordCount
       name: Records
       type: integer
     - jsonPath: .metadata.creationTimestamp
@@ -256,6 +256,10 @@ spec:
                   sync.
                 format: date-time
                 type: string
+              managedRecordCount:
+                description: ManagedRecordCount is the number of DSM proxy records
+                  currently managed by this rule.
+                type: integer
               managedRecords:
                 description: |-
                   ManagedRecords lists all DSM proxy records currently managed by this rule

@@ -70,6 +70,49 @@ jobs:
       - name: Lint Helm chart
         run: helm lint helm/synology-proxy-operator --strict
 
+      - name: Check values.schema.json covers all values.yaml keys
+        run: |
+          CHART_DIR="helm/synology-proxy-operator"
+
+          # Extract top-level keys from values.yaml
+          VALUES_KEYS=$(yq -r 'keys | .[]' "${CHART_DIR}/values.yaml")
+
+          # Extract top-level property names from values.schema.json
+          SCHEMA_KEYS=$(jq -r '.properties | keys[]' "${CHART_DIR}/values.schema.json")
+
+          MISSING=""
+          for key in ${VALUES_KEYS}; do
+            if ! echo "${SCHEMA_KEYS}" | grep -qxF "${key}"; then
+              MISSING="${MISSING}\n  - ${key}"
+            fi
+          done
+
+          if [ -n "${MISSING}" ]; then
+            echo "::error::values.schema.json is missing top-level keys from values.yaml:${MISSING}"
+            echo ""
+            echo "Add the missing keys to ${CHART_DIR}/values.schema.json"
+            exit 1
+          fi
+
+          # Also check nested keys for objects that have sub-properties
+          for key in ${VALUES_KEYS}; do
+            SUB_KEYS=$(yq -r ".${key} | if type == \"object\" then keys | .[] else empty end" "${CHART_DIR}/values.yaml" 2>/dev/null)
+            SCHEMA_SUB=$(jq -r ".properties.${key}.properties // {} | keys[]" "${CHART_DIR}/values.schema.json" 2>/dev/null)
+            for sub in ${SUB_KEYS}; do
+              if ! echo "${SCHEMA_SUB}" | grep -qxF "${sub}"; then
+                MISSING="${MISSING}\n  - ${key}.${sub}"
+              fi
+            done
+          done
+
+          if [ -n "${MISSING}" ]; then
+            echo "::error::values.schema.json is missing keys from values.yaml:${MISSING}"
+            echo ""
+            echo "Add the missing keys to ${CHART_DIR}/values.schema.json"
+            exit 1
+          fi
+          echo "All values.yaml keys are covered by values.schema.json"
+
   docker-build:
     name: Docker Build (no push)
     runs-on: ubuntu-latest

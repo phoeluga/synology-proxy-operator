@@ -32,7 +32,8 @@ kubeconfig
 .env
 .env.local
 secrets.yaml
-secret.yaml
+# Ignore secret.yaml only at root level — not Helm templates
+/secret.yaml
 
 # Helm
 *.tgz
@@ -49,4 +50,5 @@ docs/development.md
 docs/local-testing.md
 docs/release.md
 .env.local.example
+hack/synoProxyManager.py
 # <<< p-sync <<<

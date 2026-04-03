@@ -32,8 +32,11 @@ operator:
   watchNamespace: ""
 
   # ruleNamespace is the namespace where auto-generated SynologyProxyRule
-  # objects are created.
-  ruleNamespace: "synology-proxy-operator"
+  # objects are created. Empty string (default) places each rule in the same
+  # namespace as the Service/Ingress or ArgoCD Application destination namespace,
+  # which is the recommended Kubernetes-native approach.
+  # Set to a fixed namespace (e.g. "synology-proxy-operator") to centralise all rules.
+  ruleNamespace: ""
 
 # ─── Deployment ───────────────────────────────────────────────────────────────
 replicaCount: 1

@@ -275,6 +275,7 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 		r.setCondition(rule, proxyv1alpha1.ConditionSynced, metav1.ConditionFalse,
 			proxyv1alpha1.ReasonSyncFailed, "Failed to delete stale DSM records; will retry")
 		rule.Status.ManagedRecords = managedRecords
+		rule.Status.ManagedRecordCount = len(managedRecords)
 		_ = r.Status().Update(ctx, rule)
 		return ctrl.Result{RequeueAfter: requeueAfter}, nil
 	}
@@ -288,6 +289,7 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 	if statusChanged {
 		now := metav1.Now()
 		rule.Status.ManagedRecords = managedRecords
+		rule.Status.ManagedRecordCount = len(managedRecords)
 		rule.Status.Synced = true
 		rule.Status.LastSyncTime = &now
 		rule.Status.ResolvedDestinationHost = destHost

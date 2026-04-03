@@ -1,4 +1,5 @@
 // Package v1alpha1 contains API Schema definitions for the proxy.synology.io v1alpha1 API group.
+// +kubebuilder:object:generate=true
 // +groupName=proxy.synology.io
 package v1alpha1
 

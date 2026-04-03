@@ -7,7 +7,7 @@ metadata:
     app.kubernetes.io/name: synology-proxy-operator
     app.kubernetes.io/component: controller
 data:
-  # DEFAULT_DOMAIN: domain suffix appended to the ArgoCD app name when no
+  # DEFAULT_DOMAIN: domain suffix appended to the service/app name when no
   # synology.proxy/source-host annotation is present.
   # Example: "example.com" → app "myapp" → sourceHost "myapp.example.com"
   DEFAULT_DOMAIN: ""
@@ -17,8 +17,14 @@ data:
   # Leave empty to use no ACL profile (public access).
   DEFAULT_ACL_PROFILE: ""
 
+  # WATCH_NAMESPACE: namespace or glob pattern (e.g. "app-*") for auto-enabling
+  # proxy rules. All Services, Ingresses and ArgoCD Applications in matching
+  # namespaces are managed automatically without needing the
+  # synology.proxy/enabled annotation. Empty = annotation-only mode.
+  WATCH_NAMESPACE: ""
+
   # RULE_NAMESPACE: namespace where auto-generated SynologyProxyRule objects
-  # are created by the ArgoCD Application watcher.
+  # are created by the Service/Ingress and ArgoCD watchers.
   RULE_NAMESPACE: "synology-proxy-operator"
 
   # ENABLE_ARGO_WATCHER: set to "false" to disable the ArgoCD Application

@@ -129,6 +129,10 @@ type SynologyProxyRuleStatus struct {
 	// +optional
 	ManagedRecords []ManagedRecord `json:"managedRecords,omitempty"`
 
+	// ManagedRecordCount is the number of DSM proxy records currently managed by this rule.
+	// +optional
+	ManagedRecordCount int `json:"managedRecordCount,omitempty"`
+
 	// Synced indicates whether the last reconciliation succeeded.
 	Synced bool `json:"synced"`
 
@@ -171,10 +175,10 @@ const (
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
 // +kubebuilder:resource:scope=Namespaced,shortName=spr
-// +kubebuilder:printcolumn:name="Source Host",type=string,JSONPath=`.spec.sourceHost`
+// +kubebuilder:printcolumn:name="Source Host",type=string,JSONPath=`.status.managedRecords[0].sourceHost`
 // +kubebuilder:printcolumn:name="Destination",type=string,JSONPath=`.status.resolvedDestinationHost`
 // +kubebuilder:printcolumn:name="Synced",type=boolean,JSONPath=`.status.synced`
-// +kubebuilder:printcolumn:name="Records",type=integer,JSONPath=`.status.managedRecords`
+// +kubebuilder:printcolumn:name="Records",type=integer,JSONPath=`.status.managedRecordCount`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
 // SynologyProxyRule is the Schema for the synologyproxyrules API.

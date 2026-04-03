@@ -68,6 +68,11 @@ spec:
                 configMapKeyRef:
                   name: synology-proxy-operator-config
                   key: DEFAULT_ACL_PROFILE
+            - name: WATCH_NAMESPACE
+              valueFrom:
+                configMapKeyRef:
+                  name: synology-proxy-operator-config
+                  key: WATCH_NAMESPACE
             - name: RULE_NAMESPACE
               valueFrom:
                 configMapKeyRef:
