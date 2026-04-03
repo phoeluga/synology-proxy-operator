@@ -53,8 +53,8 @@
         },
         "ruleNamespace": {
           "type": "string",
-          "description": "Namespace where auto-generated SynologyProxyRule objects are created",
-          "default": "synology-proxy-operator"
+          "description": "Namespace where auto-generated SynologyProxyRule objects are created. Empty = source app namespace (recommended)",
+          "default": ""
         }
       }
     },
@@ -104,8 +104,22 @@
     },
     "podAnnotations": { "type": "object" },
     "podLabels": { "type": "object" },
-    "podSecurityContext": { "type": "object" },
-    "securityContext": { "type": "object" },
+    "podSecurityContext": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "runAsNonRoot": { "type": "boolean" },
+        "seccompProfile": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "securityContext": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "allowPrivilegeEscalation": { "type": "boolean" },
+        "capabilities": { "type": "object", "additionalProperties": true }
+      }
+    },
     "resources": {
       "type": "object",
       "properties": {
