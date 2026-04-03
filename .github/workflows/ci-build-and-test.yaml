@@ -72,46 +72,71 @@ jobs:
 
       - name: Check values.schema.json covers all values.yaml keys
         run: |
-          CHART_DIR="helm/synology-proxy-operator"
+          python3 - <<'PYEOF'
+          import json, sys, re
 
-          # Extract top-level keys from values.yaml
-          VALUES_KEYS=$(yq -r 'keys | .[]' "${CHART_DIR}/values.yaml")
+          chart_dir = "helm/synology-proxy-operator"
 
-          # Extract top-level property names from values.schema.json
-          SCHEMA_KEYS=$(jq -r '.properties | keys[]' "${CHART_DIR}/values.schema.json")
+          with open(f"{chart_dir}/values.yaml") as f:
+              content = f.read()
 
-          MISSING=""
-          for key in ${VALUES_KEYS}; do
-            if ! echo "${SCHEMA_KEYS}" | grep -qxF "${key}"; then
-              MISSING="${MISSING}\n  - ${key}"
-            fi
-          done
+          with open(f"{chart_dir}/values.schema.json") as f:
+              schema = json.load(f)
 
-          if [ -n "${MISSING}" ]; then
-            echo "::error::values.schema.json is missing top-level keys from values.yaml:${MISSING}"
-            echo ""
-            echo "Add the missing keys to ${CHART_DIR}/values.schema.json"
-            exit 1
-          fi
+          schema_props = schema.get("properties", {})
 
-          # Also check nested keys for objects that have sub-properties
-          for key in ${VALUES_KEYS}; do
-            SUB_KEYS=$(yq -r ".${key} | if type == \"object\" then keys | .[] else empty end" "${CHART_DIR}/values.yaml" 2>/dev/null)
-            SCHEMA_SUB=$(jq -r ".properties.${key}.properties // {} | keys[]" "${CHART_DIR}/values.schema.json" 2>/dev/null)
-            for sub in ${SUB_KEYS}; do
-              if ! echo "${SCHEMA_SUB}" | grep -qxF "${sub}"; then
-                MISSING="${MISSING}\n  - ${key}.${sub}"
-              fi
-            done
-          done
+          # Top-level keys: lines starting at column 0 with "key:" syntax
+          top_keys = []
+          for line in content.splitlines():
+              m = re.match(r'^([a-zA-Z][a-zA-Z0-9_-]*):', line)
+              if m:
+                  top_keys.append(m.group(1))
 
-          if [ -n "${MISSING}" ]; then
-            echo "::error::values.schema.json is missing keys from values.yaml:${MISSING}"
-            echo ""
-            echo "Add the missing keys to ${CHART_DIR}/values.schema.json"
-            exit 1
-          fi
-          echo "All values.yaml keys are covered by values.schema.json"
+          # Sub-keys: lines with exactly 2-space indent under each top-level key
+          def get_sub_keys(key):
+              in_section = False
+              sub_keys = []
+              for line in content.splitlines():
+                  if re.match(rf'^{re.escape(key)}:', line):
+                      in_section = True
+                      continue
+                  if in_section:
+                      if re.match(r'^[a-zA-Z#]', line):
+                          break
+                      m = re.match(r'^  ([a-zA-Z][a-zA-Z0-9_-]*):', line)
+                      if m:
+                          sub_keys.append(m.group(1))
+              return sub_keys
+
+          missing = []
+
+          for key in top_keys:
+              if key not in schema_props:
+                  missing.append(key)
+
+          if missing:
+              print("::error::values.schema.json is missing top-level keys from values.yaml:")
+              for m in missing:
+                  print(f"  - {m}")
+              print(f"\nAdd the missing keys to {chart_dir}/values.schema.json")
+              sys.exit(1)
+
+          for key in top_keys:
+              sub_keys = get_sub_keys(key)
+              schema_sub = set((schema_props.get(key, {}).get("properties") or {}).keys())
+              for sub in sub_keys:
+                  if sub not in schema_sub:
+                      missing.append(f"{key}.{sub}")
+
+          if missing:
+              print("::error::values.schema.json is missing nested keys from values.yaml:")
+              for m in missing:
+                  print(f"  - {m}")
+              print(f"\nAdd the missing keys to {chart_dir}/values.schema.json")
+              sys.exit(1)
+
+          print("All values.yaml keys are covered by values.schema.json")
+          PYEOF
 
   docker-build:
     name: Docker Build (no push)
