@@ -32,4 +32,10 @@ const (
 
 	// AnnotationDestPort overrides the backend port.
 	AnnotationDestPort = "synology.proxy/destination-port"
+
+	// AnnotationAutoDiscovery is placed on a Namespace to control whether
+	// WATCH_NAMESPACE glob-based auto-management applies to resources in that
+	// namespace. Set to "false" to disable auto-discovery while still allowing
+	// individual resources to opt in via synology.proxy/enabled: "true".
+	AnnotationAutoDiscovery = "synology.proxy/auto-discovery"
 )

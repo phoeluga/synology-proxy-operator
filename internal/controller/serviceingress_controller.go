@@ -12,6 +12,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -40,6 +41,7 @@ type ServiceIngressReconciler struct {
 }
 
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch
 
 // SetupWithManager registers two controllers — one for Services, one for Ingresses.
@@ -106,8 +108,15 @@ func (r *ServiceIngressReconciler) reconcileObject(
 	}
 	ruleName := ruleNameForObject(name, namespace)
 
+	// Fetch namespace annotations to check synology.proxy/auto-discovery.
+	var nsAnnotations map[string]string
+	ns := &corev1.Namespace{}
+	if err := r.Get(ctx, types.NamespacedName{Name: namespace}, ns); err == nil {
+		nsAnnotations = ns.Annotations
+	}
+
 	// Not opted-in or being deleted → clean up if we own the rule.
-	if deleting || !r.isResourceEnabled(namespace, annotations) {
+	if deleting || !r.isResourceEnabled(namespace, annotations, nsAnnotations) {
 		return ctrl.Result{}, r.deleteOwnedRule(ctx, log, ruleName, ruleNS, name, namespace)
 	}
 
@@ -226,11 +235,26 @@ func ruleNameForObject(name, namespace string) string {
 	return fmt.Sprintf("%s--%s", namespace, name)
 }
 
-// isResourceEnabled returns true when the resource should be managed — either
-// via the synology.proxy/enabled annotation or because its namespace matches
-// the configured WatchNamespace glob pattern.
-func (r *ServiceIngressReconciler) isResourceEnabled(namespace string, annotations map[string]string) bool {
-	return isEnabled(annotations) || namespaceMatches(namespace, r.WatchNamespace)
+// isResourceEnabled returns true when the resource should be managed.
+//
+// Decision order:
+//  1. synology.proxy/enabled: "false" on the resource — always opts out, even
+//     when the namespace glob matches.
+//  2. synology.proxy/enabled: "true" on the resource — always opts in.
+//  3. WatchNamespace glob matches AND the namespace does not carry
+//     synology.proxy/auto-discovery: "false" — auto-managed via glob.
+func (r *ServiceIngressReconciler) isResourceEnabled(namespace string, annotations map[string]string, namespaceAnnotations map[string]string) bool {
+	// Explicit opt-out on the resource wins over everything.
+	if strings.ToLower(annotations[AnnotationEnabled]) == "false" {
+		return false
+	}
+	// Explicit opt-in on the resource always works.
+	if isEnabled(annotations) {
+		return true
+	}
+	// Namespace glob — only applies when the namespace has not disabled auto-discovery.
+	return namespaceMatches(namespace, r.WatchNamespace) &&
+		strings.ToLower(namespaceAnnotations[AnnotationAutoDiscovery]) != "false"
 }
 
 // isEnabled returns true when synology.proxy/enabled=true is set.

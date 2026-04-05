@@ -106,6 +106,7 @@ func TestIsResourceEnabled(t *testing.T) {
 		name        string
 		namespace   string
 		annotations map[string]string
+		nsAnnotations map[string]string
 		want        bool
 	}{
 		{
@@ -127,18 +128,32 @@ func TestIsResourceEnabled(t *testing.T) {
 			want:        false,
 		},
 		{
-			name:        "annotation disabled, namespace matches glob — glob wins",
+			name:        "annotation disabled, namespace matches glob — explicit opt-out always wins",
 			namespace:   "app-foo",
 			annotations: map[string]string{AnnotationEnabled: "false"},
+			want:        false,
+		},
+		{
+			name:        "no annotation, namespace matches glob but auto-discovery disabled on namespace",
+			namespace:   "app-foo",
+			annotations: map[string]string{},
+			nsAnnotations: map[string]string{AnnotationAutoDiscovery: "false"},
+			want:        false,
+		},
+		{
+			name:        "explicit opt-in overrides namespace auto-discovery=false",
+			namespace:   "app-foo",
+			annotations: map[string]string{AnnotationEnabled: "true"},
+			nsAnnotations: map[string]string{AnnotationAutoDiscovery: "false"},
 			want:        true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := r.isResourceEnabled(tt.namespace, tt.annotations)
+			got := r.isResourceEnabled(tt.namespace, tt.annotations, tt.nsAnnotations)
 			if got != tt.want {
-				t.Errorf("isResourceEnabled(%q, %v) = %v, want %v", tt.namespace, tt.annotations, got, tt.want)
+				t.Errorf("isResourceEnabled(%q, %v, %v) = %v, want %v", tt.namespace, tt.annotations, tt.nsAnnotations, got, tt.want)
 			}
 		})
 	}

@@ -79,7 +79,7 @@ generate: controller-gen ## Re-run controller-gen (deepcopy, CRD manifests)
 .PHONY: manifests
 manifests: controller-gen ## Generate CRD manifests
 	$(CONTROLLER_GEN) rbac:roleName=synology-proxy-operator-role \
-		crd paths="./api/..." \
+		crd paths="./api/..." paths="./internal/controller/..." \
 		output:crd:artifacts:config=config/crd/bases \
 		output:rbac:artifacts:config=config/rbac
 

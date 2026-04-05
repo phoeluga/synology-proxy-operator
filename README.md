@@ -223,6 +223,10 @@ There are three ways to use the operator. Pick the one that fits your workflow.
 
 > **Tip — skip annotations entirely:** set `WATCH_NAMESPACE` to a glob pattern (e.g. `app-*`) and every Service, Ingress, and ArgoCD Application in matching namespaces is managed automatically — no annotation required.
 
+> **Fine-grained control within a glob-managed namespace:**
+> - Set `synology.proxy/enabled: "false"` on a **resource** to exclude it from auto-management, even when its namespace matches the glob.
+> - Set `synology.proxy/auto-discovery: "false"` on a **Namespace** to disable glob-based auto-management for the whole namespace. Individual resources in that namespace can still opt in with `synology.proxy/enabled: "true"`.
+
 ### Mode 1 — Annotate a Service or Ingress
 
 The simplest approach: add one annotation to any existing Service or Ingress. The operator handles the rest.
@@ -338,6 +342,56 @@ Each hostname gets its own DSM record and certificate assignment.
 
 ---
 
+## Controlling auto-discovery per namespace
+
+When `WATCH_NAMESPACE` is set to a glob pattern, every resource in matching namespaces is managed automatically. Two annotations give you fine-grained control when you need it.
+
+### Exclude one resource from a glob-managed namespace
+
+Set `synology.proxy/enabled: "false"` on the resource. This overrides the glob — the operator will skip it and clean up any existing DSM rule:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: internal-debug
+  namespace: app-myapp     # matches WATCH_NAMESPACE=app-*
+  annotations:
+    synology.proxy/enabled: "false"   # excluded — no DSM rule created
+```
+
+### Disable auto-discovery for an entire namespace
+
+Annotate the **Namespace** itself. This stops the glob from matching any resource inside it:
+
+```bash
+kubectl annotate namespace app-dns synology.proxy/auto-discovery=false
+```
+
+Resources in that namespace can still be managed individually with an explicit opt-in:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: dns-web
+  namespace: app-dns
+  annotations:
+    synology.proxy/enabled: "true"   # opted in explicitly — rule is created
+    synology.proxy/source-host: "dns.home.example.com"
+```
+
+### Decision order
+
+For any resource the operator evaluates in this order:
+
+1. `synology.proxy/enabled: "false"` on the resource → **skip** (always wins)
+2. `synology.proxy/enabled: "true"` on the resource → **manage** (always wins)
+3. Namespace matches `WATCH_NAMESPACE` glob **and** the namespace does not have `synology.proxy/auto-discovery: "false"` → **manage**
+4. None of the above → **skip**
+
+---
+
 ## Hostname derivation
 
 When `spec.sourceHost` is empty the operator derives it automatically:
@@ -391,7 +445,8 @@ When `destinationHost` / `destinationPort` are not set:
 
 | Annotation | Applies to | Description | Default |
 |---|---|---|---|
-| `synology.proxy/enabled` | Service, Ingress, ArgoCD App | `"true"` to enable proxy management | required |
+| `synology.proxy/enabled` | Service, Ingress, ArgoCD App | `"true"` opts in; `"false"` explicitly opts out (overrides `WATCH_NAMESPACE` glob) | — |
+| `synology.proxy/auto-discovery` | **Namespace** | `"false"` disables glob-based auto-management for all resources in this namespace; explicit `synology.proxy/enabled: "true"` on individual resources still works | `"true"` |
 | `synology.proxy/source-host` | Service, Ingress, ArgoCD App | Public FQDN override | derived from name + domain |
 | `synology.proxy/acl-profile` | Service, Ingress, ArgoCD App | Synology ACL profile name | `DEFAULT_ACL_PROFILE` |
 | `synology.proxy/destination-protocol` | Service, Ingress, ArgoCD App | Backend protocol: `http` or `https` | `http` |
