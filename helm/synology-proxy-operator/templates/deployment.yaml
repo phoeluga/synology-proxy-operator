@@ -40,6 +40,7 @@ spec:
             - "--enable-argo-watcher={{ .Values.operator.enableArgoWatcher }}"
             - "--watch-namespace={{ .Values.operator.watchNamespace }}"
             - "--rule-namespace={{ .Values.operator.ruleNamespace }}"
+            - "--disable-auto-discovery-if-spr-exists={{ .Values.operator.disableAutoDiscoveryIfSPRExists }}"
             - "--synology-skip-tls-verify={{ .Values.synology.skipTLSVerify }}"
           env:
             - name: SYNOLOGY_URL

@@ -54,11 +54,12 @@ func main() {
 		synologySkipTLSVerify bool
 
 		// Operator behaviour.
-		defaultACLProfile string
-		defaultDomain     string
-		watchNamespace    string
-		ruleNamespace     string
-		enableArgoWatcher bool
+		defaultACLProfile               string
+		defaultDomain                   string
+		watchNamespace                  string
+		ruleNamespace                   string
+		enableArgoWatcher               bool
+		disableAutoDiscoveryIfSPRExists bool
 	)
 
 	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
@@ -75,6 +76,7 @@ func main() {
 	flag.StringVar(&watchNamespace, "watch-namespace", envOrDefault("WATCH_NAMESPACE", ""), "Namespace or glob pattern (e.g. app-*) for auto-enabling proxy rules without annotations. Applies to Services, Ingresses and ArgoCD Applications. Empty = annotation-only mode.")
 	flag.StringVar(&ruleNamespace, "rule-namespace", envOrDefault("RULE_NAMESPACE", "synology-proxy-operator"), "Namespace where SynologyProxyRule objects are created.")
 	flag.BoolVar(&enableArgoWatcher, "enable-argo-watcher", envBoolOrDefault("ENABLE_ARGO_WATCHER", true), "Enable the ArgoCD Application watcher.")
+	flag.BoolVar(&disableAutoDiscoveryIfSPRExists, "disable-auto-discovery-if-spr-exists", envBoolOrDefault("DISABLE_AUTO_DISCOVERY_IF_SPR_EXISTS", false), "When set, glob-based auto-discovery is suppressed for any namespace that already contains a manually-created SynologyProxyRule. Resources with an explicit synology.proxy/enabled: \"true\" annotation are still managed.")
 
 	opts := zap.Options{Development: false}
 	opts.BindFlags(flag.CommandLine)
@@ -131,11 +133,12 @@ func main() {
 
 	// Register Service/Ingress watcher.
 	if err := (&controller.ServiceIngressReconciler{
-		Client:         mgr.GetClient(),
-		Scheme:         mgr.GetScheme(),
-		Log:            ctrl.Log.WithName("controllers").WithName("ServiceIngress"),
-		RuleNamespace:  ruleNamespace,
-		WatchNamespace: watchNamespace,
+		Client:                          mgr.GetClient(),
+		Scheme:                          mgr.GetScheme(),
+		Log:                             ctrl.Log.WithName("controllers").WithName("ServiceIngress"),
+		RuleNamespace:                   ruleNamespace,
+		WatchNamespace:                  watchNamespace,
+		DisableAutoDiscoveryIfSPRExists: disableAutoDiscoveryIfSPRExists,
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "Unable to create ServiceIngress controller")
 		os.Exit(1)
@@ -144,12 +147,13 @@ func main() {
 	// Register ArgoCD Application watcher (optional).
 	if enableArgoWatcher {
 		if err := (&controller.ArgoApplicationReconciler{
-			Client:         mgr.GetClient(),
-			Scheme:         mgr.GetScheme(),
-			Log:            ctrl.Log.WithName("controllers").WithName("ArgoApplication"),
-			DefaultDomain:  defaultDomain,
-			WatchNamespace: watchNamespace,
-			RuleNamespace:  ruleNamespace,
+			Client:                          mgr.GetClient(),
+			Scheme:                          mgr.GetScheme(),
+			Log:                             ctrl.Log.WithName("controllers").WithName("ArgoApplication"),
+			DefaultDomain:                   defaultDomain,
+			WatchNamespace:                  watchNamespace,
+			RuleNamespace:                   ruleNamespace,
+			DisableAutoDiscoveryIfSPRExists: disableAutoDiscoveryIfSPRExists,
 		}).SetupWithManager(mgr); err != nil {
 			if strings.Contains(err.Error(), "no kind is registered") {
 				setupLog.Info("ArgoCD CRDs not found in cluster — ArgoCD watcher disabled. " +
@@ -177,6 +181,7 @@ func main() {
 		"ruleNamespace", ruleNamespace,
 		"watchNamespace", watchNamespace,
 		"argoWatcher", enableArgoWatcher,
+		"disableAutoDiscoveryIfSPRExists", disableAutoDiscoveryIfSPRExists,
 	)
 
 	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {

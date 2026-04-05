@@ -34,6 +34,11 @@ type ArgoApplicationReconciler struct {
 	WatchNamespace string
 	// RuleNamespace is the namespace where SynologyProxyRule objects are created.
 	RuleNamespace string
+	// DisableAutoDiscoveryIfSPRExists suppresses glob-based auto-discovery for a
+	// namespace when at least one manually-created SynologyProxyRule already
+	// exists there. Applications with an explicit synology.proxy/enabled: "true"
+	// annotation are still managed regardless of this flag.
+	DisableAutoDiscoveryIfSPRExists bool
 }
 
 // +kubebuilder:rbac:groups=argoproj.io,resources=applications,verbs=get;list;watch
@@ -70,6 +75,16 @@ func (r *ArgoApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 
 	if !app.DeletionTimestamp.IsZero() {
 		return ctrl.Result{}, r.deleteRuleIfExists(ctx, log, app)
+	}
+
+	// Glob-only auto-discovery: if a manual SPR exists in the rule namespace,
+	// back off and remove any rule we previously created for this app.
+	if r.DisableAutoDiscoveryIfSPRExists && !isProxyEnabled(app) {
+		ruleNS := r.ruleNamespaceFor(app)
+		if hasManualSPRInNamespace(ctx, r.Client, ruleNS) {
+			log.V(1).Info("Manual SPR found in namespace, suppressing auto-discovery", "ruleNamespace", ruleNS)
+			return ctrl.Result{}, r.deleteRuleIfExists(ctx, log, app)
+		}
 	}
 
 	return ctrl.Result{}, r.reconcileRule(ctx, log, app)

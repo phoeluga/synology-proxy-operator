@@ -38,6 +38,11 @@ type ServiceIngressReconciler struct {
 	// Services and Ingresses in matching namespaces are auto-managed without
 	// requiring the synology.proxy/enabled annotation.
 	WatchNamespace string
+	// DisableAutoDiscoveryIfSPRExists suppresses glob-based auto-discovery for a
+	// namespace when at least one manually-created SynologyProxyRule already
+	// exists there. Resources with an explicit synology.proxy/enabled: "true"
+	// annotation are still managed regardless of this flag.
+	DisableAutoDiscoveryIfSPRExists bool
 }
 
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch
@@ -118,6 +123,15 @@ func (r *ServiceIngressReconciler) reconcileObject(
 	// Not opted-in or being deleted → clean up if we own the rule.
 	if deleting || !r.isResourceEnabled(namespace, annotations, nsAnnotations) {
 		return ctrl.Result{}, r.deleteOwnedRule(ctx, log, ruleName, ruleNS, name, namespace)
+	}
+
+	// Glob-only auto-discovery: if a manual SPR exists in the rule namespace,
+	// back off and remove any rule we previously created for this object.
+	if r.DisableAutoDiscoveryIfSPRExists && !isEnabled(annotations) {
+		if hasManualSPRInNamespace(ctx, r.Client, ruleNS) {
+			log.V(1).Info("Manual SPR found in namespace, suppressing auto-discovery", "ruleNamespace", ruleNS)
+			return ctrl.Result{}, r.deleteOwnedRule(ctx, log, ruleName, ruleNS, name, namespace)
+		}
 	}
 
 	return ctrl.Result{}, r.upsertRule(ctx, log, ruleName, ruleNS, name, namespace, annotations, serviceRef, ingressRef)

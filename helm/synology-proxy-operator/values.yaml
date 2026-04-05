@@ -38,6 +38,14 @@ operator:
   # Set to a fixed namespace (e.g. "synology-proxy-operator") to centralise all rules.
   ruleNamespace: ""
 
+  # disableAutoDiscoveryIfSPRExists suppresses glob-based auto-discovery for any
+  # namespace that already contains a manually-created SynologyProxyRule (one not
+  # stamped with app.kubernetes.io/managed-by: synology-proxy-operator).
+  # Useful when you want to take full manual control of a namespace while keeping
+  # auto-discovery active in others.
+  # Resources with synology.proxy/enabled: "true" are always managed regardless.
+  disableAutoDiscoveryIfSPRExists: false
+
 # ─── Deployment ───────────────────────────────────────────────────────────────
 replicaCount: 1
 

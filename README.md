@@ -214,6 +214,7 @@ All settings are read from environment variables. Helm sets these automatically 
 | `RULE_NAMESPACE` | Namespace where auto-created `SynologyProxyRule` objects are placed. Empty = source app namespace | `""` |
 | `ENABLE_ARGO_WATCHER` | Enable the ArgoCD Application watcher | `true` |
 | `WATCH_NAMESPACE` | Namespace glob pattern (e.g. `app-*`) — Services, Ingresses and ArgoCD Applications in matching namespaces are auto-managed without needing the `synology.proxy/enabled` annotation. Empty = annotation-only mode. | `""` |
+| `DISABLE_AUTO_DISCOVERY_IF_SPR_EXISTS` | When `true`, glob-based auto-discovery is suppressed for any namespace that already contains a manually-created `SynologyProxyRule`. Resources with `synology.proxy/enabled: "true"` are always managed regardless. | `false` |
 
 ---
 
@@ -226,6 +227,7 @@ There are three ways to use the operator. Pick the one that fits your workflow.
 > **Fine-grained control within a glob-managed namespace:**
 > - Set `synology.proxy/enabled: "false"` on a **resource** to exclude it from auto-management, even when its namespace matches the glob.
 > - Set `synology.proxy/auto-discovery: "false"` on a **Namespace** to disable glob-based auto-management for the whole namespace. Individual resources in that namespace can still opt in with `synology.proxy/enabled: "true"`.
+> - Enable `operator.disableAutoDiscoveryIfSPRExists: true` to have auto-discovery automatically back off for any namespace where you place a manual `SynologyProxyRule`.
 
 ### Mode 1 — Annotate a Service or Ingress
 
@@ -381,13 +383,42 @@ metadata:
     synology.proxy/source-host: "dns.home.example.com"
 ```
 
+### Disable auto-discovery when a manual SPR exists in the namespace
+
+Enable `operator.disableAutoDiscoveryIfSPRExists: true` (env: `DISABLE_AUTO_DISCOVERY_IF_SPR_EXISTS=true`) to let a manually-created `SynologyProxyRule` act as an implicit "hands-off" signal for its namespace.
+
+When active, the operator detects any SPR in the namespace that it did not create itself (i.e. lacking the `app.kubernetes.io/managed-by: synology-proxy-operator` label). If one exists, glob-based auto-discovery is suppressed for that namespace and any previously auto-created rules are cleaned up:
+
+```yaml
+# values.yaml
+operator:
+  watchNamespace: "app-*"
+  disableAutoDiscoveryIfSPRExists: true
+```
+
+```yaml
+# This manual rule in namespace app-myapp causes auto-discovery to back off
+apiVersion: proxy.synology.io/v1alpha1
+kind: SynologyProxyRule
+metadata:
+  name: myapp-custom
+  namespace: app-myapp   # no managed-by label → operator treats it as manual
+spec:
+  sourceHost: myapp.home.example.com
+  serviceRef:
+    name: myapp
+    namespace: app-myapp
+```
+
+Resources with `synology.proxy/enabled: "true"` are always managed, regardless of this option.
+
 ### Decision order
 
 For any resource the operator evaluates in this order:
 
 1. `synology.proxy/enabled: "false"` on the resource → **skip** (always wins)
 2. `synology.proxy/enabled: "true"` on the resource → **manage** (always wins)
-3. Namespace matches `WATCH_NAMESPACE` glob **and** the namespace does not have `synology.proxy/auto-discovery: "false"` → **manage**
+3. Namespace matches `WATCH_NAMESPACE` glob **and** the namespace does not have `synology.proxy/auto-discovery: "false"` **and** (`DISABLE_AUTO_DISCOVERY_IF_SPR_EXISTS` is false or no manual SPR exists) → **manage**
 4. None of the above → **skip**
 
 ---
@@ -558,6 +589,7 @@ kubectl annotate spr myapp -n myapp force-sync="$(date +%s)" --overwrite
 | `operator.enableArgoWatcher` | Enable ArgoCD Application watcher | `true` |
 | `operator.watchNamespace` | Namespace glob (e.g. `app-*`) for annotation-free auto-management | `""` |
 | `operator.ruleNamespace` | Namespace for auto-created `SynologyProxyRule` objects. Empty = source app namespace | `""` |
+| `operator.disableAutoDiscoveryIfSPRExists` | Suppress glob auto-discovery for any namespace that already contains a manually-created `SynologyProxyRule` | `false` |
 | `installCRDs` | Install CRDs via Helm | `true` |
 | `leaderElection` | Enable leader election for HA deployments | `false` |
 

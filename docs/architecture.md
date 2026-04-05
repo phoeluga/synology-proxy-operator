@@ -50,13 +50,14 @@ Watches Services and Ingresses with the annotation `synology.proxy/enabled: "tru
 
 **Reads annotations:** `source-host`, `acl-profile`, `destination-protocol`, `assign-certificate`
 
-**Enable/disable decision order** (`isResourceEnabled`):
+**Enable/disable decision order** (`isResourceEnabled` + post-check):
 1. `synology.proxy/enabled: "false"` on the resource → skip (explicit opt-out always wins, even against glob)
 2. `synology.proxy/enabled: "true"` on the resource → manage (explicit opt-in always wins)
-3. Namespace matches `WATCH_NAMESPACE` glob **and** the Namespace object does not carry `synology.proxy/auto-discovery: "false"` → manage
-4. None of the above → skip
+3. Namespace matches `WATCH_NAMESPACE` glob **and** the Namespace object does not carry `synology.proxy/auto-discovery: "false"` → proceed to step 4
+4. If `DisableAutoDiscoveryIfSPRExists` is set: check for a manually-created SPR in the rule namespace via `hasManualSPRInNamespace()` — if one exists, delete any auto-created rule and skip; otherwise manage
+5. None of the above → skip
 
-The controller fetches the Namespace object on every reconcile to read `synology.proxy/auto-discovery`. This allows a namespace to be annotated at any time without restarting the operator.
+The controller fetches the Namespace object on every reconcile to read `synology.proxy/auto-discovery`. This allows a namespace to be annotated at any time without restarting the operator. Similarly, placing or removing a manual SPR in a namespace takes effect on the next reconcile cycle with no restart needed.
 
 ---
 
@@ -74,7 +75,7 @@ Watches ArgoCD `Application` objects (GVK: `argoproj.io/v1alpha1/Application`). 
 
 **Rule namespace resolution** (`ruleNamespaceFor`): explicit `RULE_NAMESPACE` → `app.Spec.Destination.Namespace` → `app.Namespace`. Cross-namespace owner references are forbidden in Kubernetes, so ownership is tracked via labels (`proxy.synology.io/managed-by-argo-app`) when the rule and Application are in different namespaces.
 
-**Enable/disable decision order** mirrors `ServiceIngressReconciler`: explicit `enabled: "false"` → skip; explicit `enabled: "true"` → manage; glob match without `auto-discovery: "false"` on the Namespace → manage; otherwise skip.
+**Enable/disable decision order** mirrors `ServiceIngressReconciler`: explicit `enabled: "false"` → skip; explicit `enabled: "true"` → manage; glob match without `auto-discovery: "false"` on the Namespace → check `DisableAutoDiscoveryIfSPRExists` and `hasManualSPRInNamespace()` → manage or skip.
 
 **Namespace filtering:** `WATCH_NAMESPACE` restricts which namespaces are observed.
 
@@ -252,6 +253,7 @@ synology-proxy-operator/
 │   │   └── types.go                     # minimal ArgoCD types (no full dependency)
 │   ├── controller/
 │   │   ├── annotations.go               # shared annotation key constants
+│   │   ├── sprdiscovery.go              # hasManualSPRInNamespace helper
 │   │   ├── argoapplication_controller.go
 │   │   ├── serviceingress_controller.go
 │   │   ├── synologyproxyrule_controller.go
