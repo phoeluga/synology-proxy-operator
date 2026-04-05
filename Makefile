@@ -20,7 +20,10 @@ MINIKUBE_PROFILE ?= synology-dev
 
 # controller-gen & envtest versions
 CONTROLLER_GEN_VERSION ?= v0.17.3
-ENVTEST_VERSION        ?= release-0.19
+# Version of the setup-envtest tool itself (semver tag from controller-runtime)
+ENVTEST_TOOL_VERSION   ?= latest
+# Kubernetes version for envtest binaries (passed to setup-envtest use)
+ENVTEST_K8S_VERSION    ?= 1.32.x
 
 # Local kubeconfig
 KUBECONFIG ?= $(HOME)/.kube/config
@@ -48,7 +51,7 @@ lint: ## Run golangci-lint (requires golangci-lint to be installed)
 
 .PHONY: test
 test: fmt vet envtest ## Run unit tests
-	KUBEBUILDER_ASSETS="$(shell $(LOCALBIN)/setup-envtest use $(ENVTEST_VERSION) --bin-path $(LOCALBIN)/envtest -p path)" \
+	KUBEBUILDER_ASSETS="$(shell $(LOCALBIN)/setup-envtest use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCALBIN)/envtest -p path)" \
 		go test ./... -coverprofile cover.out -v
 
 .PHONY: build
@@ -76,7 +79,7 @@ generate: controller-gen ## Re-run controller-gen (deepcopy, CRD manifests)
 .PHONY: manifests
 manifests: controller-gen ## Generate CRD manifests
 	$(CONTROLLER_GEN) rbac:roleName=synology-proxy-operator-role \
-		crd paths="./api/..." \
+		crd paths="./api/..." paths="./internal/controller/..." \
 		output:crd:artifacts:config=config/crd/bases \
 		output:rbac:artifacts:config=config/rbac
 
@@ -263,4 +266,4 @@ $(CONTROLLER_GEN): $(LOCALBIN)
 
 .PHONY: envtest
 envtest: ## Download setup-envtest locally
-	GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_VERSION)
+	GOBIN=$(LOCALBIN) go install sigs.k8s.io/controller-runtime/tools/setup-envtest@$(ENVTEST_TOOL_VERSION)

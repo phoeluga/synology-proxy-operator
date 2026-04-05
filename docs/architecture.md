@@ -50,6 +50,14 @@ Watches Services and Ingresses with the annotation `synology.proxy/enabled: "tru
 
 **Reads annotations:** `source-host`, `acl-profile`, `destination-protocol`, `assign-certificate`
 
+**Enable/disable decision order** (`isResourceEnabled`):
+1. `synology.proxy/enabled: "false"` on the resource → skip (explicit opt-out always wins, even against glob)
+2. `synology.proxy/enabled: "true"` on the resource → manage (explicit opt-in always wins)
+3. Namespace matches `WATCH_NAMESPACE` glob **and** the Namespace object does not carry `synology.proxy/auto-discovery: "false"` → manage
+4. None of the above → skip
+
+The controller fetches the Namespace object on every reconcile to read `synology.proxy/auto-discovery`. This allows a namespace to be annotated at any time without restarting the operator.
+
 ---
 
 ### ArgoApplicationReconciler
@@ -65,6 +73,8 @@ Watches ArgoCD `Application` objects (GVK: `argoproj.io/v1alpha1/Application`). 
 - Auto-scans the Application's destination namespace when no refs are provided
 
 **Rule namespace resolution** (`ruleNamespaceFor`): explicit `RULE_NAMESPACE` → `app.Spec.Destination.Namespace` → `app.Namespace`. Cross-namespace owner references are forbidden in Kubernetes, so ownership is tracked via labels (`proxy.synology.io/managed-by-argo-app`) when the rule and Application are in different namespaces.
+
+**Enable/disable decision order** mirrors `ServiceIngressReconciler`: explicit `enabled: "false"` → skip; explicit `enabled: "true"` → manage; glob match without `auto-discovery: "false"` on the Namespace → manage; otherwise skip.
 
 **Namespace filtering:** `WATCH_NAMESPACE` restricts which namespaces are observed.
 
@@ -154,6 +164,79 @@ Discovery result is written to `status.resolvedDestinationHost` and `status.reso
 
 ---
 
+## Testing architecture
+
+The test suite is split into two layers that reflect the operator's own design.
+
+### Unit tests (no cluster)
+
+`internal/controller/helpers_test.go` — pure Go tests for the helper functions that implement the core business rules:
+
+| Function | What it decides |
+|---|---|
+| `namespaceMatches(ns, pattern)` | Whether a namespace matches a `WATCH_NAMESPACE` glob |
+| `ruleNameForObject(name, ns)` | The `<namespace>--<name>` double-dash format for auto-created SPR names |
+| `isEnabled(annotations)` | Whether the `synology.proxy/enabled` annotation is set to `true` |
+| `isResourceEnabled(ns, annotations)` | Combined check: annotation OR namespace glob match |
+
+These run instantly with no external dependencies and are the first line of defence for logic regressions.
+
+### Controller integration tests (envtest)
+
+`internal/controller/*_test.go` — each test starts a real Kubernetes API server and etcd in-process via [envtest](https://book.kubebuilder.io/reference/envtest), registers the controller under test with a `ctrl.Manager`, and drives the full reconcile loop against real Kubernetes objects.
+
+```
+TestServiceAnnotation_CreatesSPR
+  │
+  ├─ envtest.Environment.Start()        → real kube-apiserver + etcd
+  ├─ ctrl.NewManager(cfg, ...)          → informer caches, client
+  ├─ ServiceIngressReconciler.Setup()   → watches Services + Ingresses
+  │
+  ├─ k8s.Create(Service{annotation=true})
+  └─ eventually(k8s.Get(SynologyProxyRule))  → controller ran and created the CR
+```
+
+Each test function gets its own isolated environment (separate API server process). The `startManager` / `startManagerWithArgo` helpers in `suite_test.go` handle setup and register a `t.Cleanup` that stops the environment after the test.
+
+**Controller name uniqueness** — controller-runtime rejects duplicate controller names within one process. Tests use `ctrlconfig.Controller{SkipNameValidation: ptr.To(true)}` in the manager options so multiple test managers can coexist in the same `go test` binary.
+
+### DSM mock (SynologyProxyRuleReconciler tests)
+
+`SynologyProxyRuleReconciler` is the only controller that calls DSM. Its tests use an `httptest.Server` (`fakeDSM`) that speaks the Synology DSM wire protocol and stores proxy records in memory:
+
+```
+TestSPR_CreatesPushesToDSM
+  │
+  ├─ fakeDSM.Start()                  → httptest.Server on random port
+  ├─ synology.New(Config{URL: srv.URL})  → real client pointing at mock
+  ├─ envtest + SynologyProxyRuleReconciler wired to the real client
+  │
+  ├─ k8s.Create(SynologyProxyRule{...})
+  ├─ eventually(spr.Status.Synced == true)
+  └─ assert(fakeDSM.Creates == 1)     → controller called DSM create exactly once
+```
+
+The `fakeDSM` handles: login (`/webapi/auth.cgi`), proxy CRUD (`list` / `create` / `update` / `delete`), certificate list, ACL profile list. A real `synology.Client` is pointed at its URL — no interface abstraction or production code changes are required.
+
+### CI integration
+
+The CI workflow (`.github/workflows/ci-build-and-test.yaml`) installs `setup-envtest` and sets `KUBEBUILDER_ASSETS` before running `go test ./...`:
+
+```yaml
+- name: Install setup-envtest
+  run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+
+- name: Run tests
+  run: |
+    KUBEBUILDER_ASSETS="$(setup-envtest use 1.32.x --bin-dir /tmp/envtest -p path)"
+    export KUBEBUILDER_ASSETS
+    go test ./... -v -coverprofile=coverage.out
+```
+
+This means every pull request and every merge to `main` runs the full envtest suite — unit tests, all three controller integration test suites, and the fake-DSM tests — without needing a real cluster or Synology device.
+
+---
+
 ## Project structure
 
 ```
@@ -171,7 +254,14 @@ synology-proxy-operator/
 │   │   ├── annotations.go               # shared annotation key constants
 │   │   ├── argoapplication_controller.go
 │   │   ├── serviceingress_controller.go
-│   │   └── synologyproxyrule_controller.go
+│   │   ├── synologyproxyrule_controller.go
+│   │   ├── helpers_test.go              # unit tests (no cluster)
+│   │   ├── suite_test.go                # envtest helpers (startManager, eventually)
+│   │   ├── serviceingress_controller_test.go
+│   │   ├── argoapplication_controller_test.go
+│   │   ├── synologyproxyrule_controller_test.go  # includes fakeDSM
+│   │   └── testdata/
+│   │       └── argo-application-crd.yaml  # minimal CRD for envtest ArgoCD tests
 │   └── synology/
 │       ├── client.go
 │       ├── proxy.go

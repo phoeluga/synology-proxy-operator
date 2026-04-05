@@ -7,9 +7,11 @@ import (
 	"strings"
 
 	"github.com/go-logr/logr"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -35,6 +37,7 @@ type ArgoApplicationReconciler struct {
 }
 
 // +kubebuilder:rbac:groups=argoproj.io,resources=applications,verbs=get;list;watch
+// +kubebuilder:rbac:groups="",resources=namespaces,verbs=get;list;watch
 
 // Reconcile is the main loop for ArgoApplicationReconciler.
 func (r *ArgoApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -48,11 +51,20 @@ func (r *ArgoApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, err
 	}
 
-	// Manage apps that are explicitly opted-in via annotation, or whose namespace
-	// matches the WatchNamespace glob pattern (auto-enable without annotation).
-	if !isProxyEnabled(app) && !namespaceMatches(app.Namespace, r.WatchNamespace) {
-		// Clean up only rules this operator created (owner reference present).
-		// Rules created manually via resources.yaml are left untouched.
+	// Fetch namespace annotations to check synology.proxy/auto-discovery.
+	var nsAnnotations map[string]string
+	ns := &corev1.Namespace{}
+	if err := r.Get(ctx, types.NamespacedName{Name: app.Namespace}, ns); err == nil {
+		nsAnnotations = ns.Annotations
+	}
+
+	// Explicit opt-out on the app always wins.
+	explicitlyDisabled := strings.ToLower(app.Annotations[AnnotationEnabled]) == "false"
+	// Glob auto-manage applies only when the namespace has not disabled auto-discovery.
+	globEnabled := namespaceMatches(app.Namespace, r.WatchNamespace) &&
+		strings.ToLower(nsAnnotations[AnnotationAutoDiscovery]) != "false"
+
+	if explicitlyDisabled || (!isProxyEnabled(app) && !globEnabled) {
 		return ctrl.Result{}, r.deleteRuleIfExists(ctx, log, app)
 	}
 
