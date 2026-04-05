@@ -13,9 +13,11 @@ import (
 // (i.e. it lacks the "app.kubernetes.io/managed-by: synology-proxy-operator"
 // label that the operator stamps on every rule it creates automatically).
 //
-// This is used to implement the DisableAutoDiscoveryIfSPRExists option: when
-// a user places an explicit SPR in a namespace, the glob-based auto-discovery
-// backs off and stops generating additional rules there.
+// The namespace to check is always the SOURCE namespace (where the Service,
+// Ingress, or ArgoCD Application destination resources live) — NOT the rule
+// namespace. This ensures the per-namespace suppression is scoped correctly:
+// a manual SPR in app-pihole suppresses only app-pihole, not app-homeassistant,
+// even when both auto-created rules live in a centralised ruleNamespace.
 func hasManualSPRInNamespace(ctx context.Context, c client.Client, namespace string) bool {
 	list := &proxyv1alpha1.SynologyProxyRuleList{}
 	if err := c.List(ctx, list, client.InNamespace(namespace)); err != nil {

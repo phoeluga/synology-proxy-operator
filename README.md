@@ -397,17 +397,19 @@ operator:
 ```
 
 ```yaml
-# This manual rule in namespace app-myapp causes auto-discovery to back off
+# Place the manual SPR in the APP's own namespace (not the centralised ruleNamespace).
+# The operator checks the source namespace — so app-pihole's SPR suppresses only
+# pihole auto-discovery, while app-homeassistant continues to be auto-managed.
 apiVersion: proxy.synology.io/v1alpha1
 kind: SynologyProxyRule
 metadata:
-  name: myapp-custom
-  namespace: app-myapp   # no managed-by label → operator treats it as manual
+  name: pihole-custom
+  namespace: app-pihole   # must be in the app's namespace, not synology-proxy-operator
 spec:
-  sourceHost: myapp.home.example.com
+  sourceHost: pihole.home.example.com
   serviceRef:
-    name: myapp
-    namespace: app-myapp
+    name: pihole
+    namespace: app-pihole
 ```
 
 Resources with `synology.proxy/enabled: "true"` are always managed, regardless of this option.

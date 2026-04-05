@@ -77,12 +77,15 @@ func (r *ArgoApplicationReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		return ctrl.Result{}, r.deleteRuleIfExists(ctx, log, app)
 	}
 
-	// Glob-only auto-discovery: if a manual SPR exists in the rule namespace,
-	// back off and remove any rule we previously created for this app.
+	// Glob-only auto-discovery: if a manual SPR exists in the app's destination
+	// namespace, back off and remove any rule we previously created for this app.
 	if r.DisableAutoDiscoveryIfSPRExists && !isProxyEnabled(app) {
-		ruleNS := r.ruleNamespaceFor(app)
-		if hasManualSPRInNamespace(ctx, r.Client, ruleNS) {
-			log.V(1).Info("Manual SPR found in namespace, suppressing auto-discovery", "ruleNamespace", ruleNS)
+		checkNS := app.Spec.Destination.Namespace
+		if checkNS == "" {
+			checkNS = app.Namespace
+		}
+		if hasManualSPRInNamespace(ctx, r.Client, checkNS) {
+			log.V(1).Info("Manual SPR found in namespace, suppressing auto-discovery", "namespace", checkNS)
 			return ctrl.Result{}, r.deleteRuleIfExists(ctx, log, app)
 		}
 	}

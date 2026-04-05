@@ -125,11 +125,11 @@ func (r *ServiceIngressReconciler) reconcileObject(
 		return ctrl.Result{}, r.deleteOwnedRule(ctx, log, ruleName, ruleNS, name, namespace)
 	}
 
-	// Glob-only auto-discovery: if a manual SPR exists in the rule namespace,
+	// Glob-only auto-discovery: if a manual SPR exists in the source namespace,
 	// back off and remove any rule we previously created for this object.
 	if r.DisableAutoDiscoveryIfSPRExists && !isEnabled(annotations) {
-		if hasManualSPRInNamespace(ctx, r.Client, ruleNS) {
-			log.V(1).Info("Manual SPR found in namespace, suppressing auto-discovery", "ruleNamespace", ruleNS)
+		if hasManualSPRInNamespace(ctx, r.Client, namespace) {
+			log.V(1).Info("Manual SPR found in namespace, suppressing auto-discovery", "namespace", namespace)
 			return ctrl.Result{}, r.deleteOwnedRule(ctx, log, ruleName, ruleNS, name, namespace)
 		}
 	}
