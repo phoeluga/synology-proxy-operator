@@ -55,6 +55,11 @@
           "type": "string",
           "description": "Namespace where auto-generated SynologyProxyRule objects are created. Empty = source app namespace (recommended)",
           "default": ""
+        },
+        "disableAutoDiscoveryIfSPRExists": {
+          "type": "boolean",
+          "description": "Suppress glob-based auto-discovery for any namespace that already contains a manually-created SynologyProxyRule",
+          "default": false
         }
       }
     },
