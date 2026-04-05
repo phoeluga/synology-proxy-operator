@@ -28,7 +28,7 @@ func setupArgoController(mgr ctrl.Manager, watchNS, ruleNS, defaultDomain string
 	return r.SetupWithManager(mgr)
 }
 
-func makeArgoApp(name, ns, destNS string, annotations map[string]string) *argo.Application {
+func makeArgoApp(name, destNS string, annotations map[string]string) *argo.Application {
 	return &argo.Application{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "argoproj.io/v1alpha1",
@@ -36,7 +36,7 @@ func makeArgoApp(name, ns, destNS string, annotations map[string]string) *argo.A
 		},
 		ObjectMeta: metav1.ObjectMeta{
 			Name:        name,
-			Namespace:   ns,
+			Namespace:   "argocd",
 			Annotations: annotations,
 		},
 		Spec: argo.ApplicationSpec{
@@ -58,7 +58,7 @@ func TestArgoAnnotation_CreatesSPR(t *testing.T) {
 	ns := "argocd"
 	createNamespace(t, k8s, ns)
 
-	app := makeArgoApp("myapp", ns, "app-myapp", map[string]string{
+	app := makeArgoApp("myapp", "app-myapp", map[string]string{
 		"synology.proxy/enabled": "true",
 	})
 	if err := k8s.Create(ctx, app); err != nil {
@@ -91,7 +91,7 @@ func TestArgoAnnotation_SourceHostFromDefaultDomain(t *testing.T) {
 	createNamespace(t, k8s, ns)
 	createNamespace(t, k8s, destNS)
 
-	app := makeArgoApp("headlamp", ns, destNS, map[string]string{
+	app := makeArgoApp("headlamp", destNS, map[string]string{
 		"synology.proxy/enabled": "true",
 	})
 	if err := k8s.Create(ctx, app); err != nil {
@@ -126,7 +126,7 @@ func TestArgoWatchNamespace_AutoEnablesApp(t *testing.T) {
 	createNamespace(t, k8s, destNS)
 
 	// No synology.proxy/enabled annotation
-	app := makeArgoApp("grafana", ns, destNS, nil)
+	app := makeArgoApp("grafana", destNS, nil)
 	if err := k8s.Create(ctx, app); err != nil {
 		t.Fatalf("creating application: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestArgoCentralRuleNamespace_PlacesSPRInConfiguredNamespace(t *testing.T) {
 	createNamespace(t, k8s, appNS)
 	createNamespace(t, k8s, ruleNS)
 
-	app := makeArgoApp("prometheus", appNS, "monitoring", map[string]string{
+	app := makeArgoApp("prometheus", "monitoring", map[string]string{
 		"synology.proxy/enabled": "true",
 	})
 	if err := k8s.Create(ctx, app); err != nil {
@@ -194,7 +194,7 @@ func TestArgoApp_AnnotationRemovalDeletesSPR(t *testing.T) {
 	createNamespace(t, k8s, ns)
 	createNamespace(t, k8s, destNS)
 
-	app := makeArgoApp("loki", ns, destNS, map[string]string{
+	app := makeArgoApp("loki", destNS, map[string]string{
 		"synology.proxy/enabled": "true",
 	})
 	if err := k8s.Create(ctx, app); err != nil {

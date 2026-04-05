@@ -39,44 +39,6 @@ func init() {
 	_ = argo.AddToScheme(scheme)
 }
 
-// startEnvtest boots a real API server + etcd for integration tests.
-// Returns a configured client and a cancel func to shut down the environment.
-func startEnvtest(t *testing.T) (client.Client, context.CancelFunc) {
-	t.Helper()
-
-	ctrl.SetLogger(zap.New(zap.UseDevMode(true)))
-
-	env := &envtest.Environment{
-		CRDDirectoryPaths: []string{
-			filepath.Join("..", "..", "config", "crd", "bases"),
-		},
-		ErrorIfCRDPathMissing: true,
-		Scheme:                scheme,
-	}
-
-	cfg, err := env.Start()
-	if err != nil {
-		t.Fatalf("starting envtest: %v", err)
-	}
-
-	k8sClient, err := client.New(cfg, client.Options{Scheme: scheme})
-	if err != nil {
-		t.Fatalf("creating client: %v", err)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-
-	t.Cleanup(func() {
-		cancel()
-		if err := env.Stop(); err != nil {
-			t.Logf("stopping envtest: %v", err)
-		}
-	})
-
-	_ = ctx
-	return k8sClient, cancel
-}
-
 // startManager boots a controller-runtime manager with all controllers registered.
 // Returns the manager's client and a cancel func.
 func startManager(t *testing.T, setupFn func(ctrl.Manager) error) (client.Client, context.CancelFunc) {
