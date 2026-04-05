@@ -13,17 +13,21 @@
 
 
 
-> **Deploy an app. Get a working HTTPS hostname. Automatically.**
-> No DNS config. No reverse proxy setup. No certificate assignment. Just deploy.
+> **Deploy an app. Get a working HTTPS reverse proxy entry. Automatically.**
+> No manual DSM configuration. No certificate assignment. No cleanup to remember.
 
 
 ---
 
-You have a Synology NAS acting as your home lab's gateway. Every time you deploy a new service to Kubernetes, you open DSM, navigate to the reverse proxy settings, fill in the hostname, the backend IP, the port, assign a certificate — then go to your DNS server and add an A record. And repeat for the next service, and the next.
+You have a Synology NAS acting as your home lab gateway. Every time you deploy a new service to Kubernetes, you open DSM, navigate to Application Portal → Reverse Proxy, fill in the hostname, the backend IP, the port, and assign a certificate. When a LoadBalancer IP changes, you update it manually. When you remove an app, you remember (or forget) to clean up the rule.
 
-When a LoadBalancer IP changes, you update it manually. When you remove an app, you remember (or forget) to clean up the DSM rule and the DNS entry.
+**Synology Proxy Operator eliminates all of that.** It watches your Kubernetes cluster and keeps your Synology DSM reverse proxy configuration in sync — automatically. Deploy an app, get a reverse proxy entry. Delete it, the rule is gone. Change the backend IP, the rule is updated. All without touching DSM.
 
-**Synology Proxy Operator eliminates all of that.** It watches your Kubernetes cluster and keeps your Synology DSM reverse proxy configuration in sync — automatically. When paired with Synology DNS Server, even the DNS record is created for you.
+On top of that, the operator:
+- **Assigns TLS certificates automatically** — picks the best matching wildcard or SAN certificate from DSM, falls back to the default certificate
+- **Enforces access control** — apply a Synology ACL profile (e.g. "LAN Only") globally or per-rule to restrict which clients can reach a service
+- **Supports additional hostnames** — one app, multiple public FQDNs, each with its own DSM record and certificate
+- **Cleans up reliably** — a Kubernetes finalizer ensures DSM records are removed before the rule object is deleted, even if the operator restarts mid-deletion
 
 ---
 
@@ -45,32 +49,22 @@ The first two controllers are purely Kubernetes-side. All DSM interaction flows 
 
 ---
 
-## Zero-touch DNS — how it all fits together
-
-When the operator creates a reverse proxy rule in DSM, the Synology **DNS Server** package automatically registers a matching DNS A record for the hostname — pointing to your NAS. No manual DNS entry required.
-
-Pair this with the following DNS chain for a fully automated home lab setup:
+## Zero-touch reverse proxy management
 
 <p align="center">
     <img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/chart_zeroTouch.png" alt="" width="95%" >
 </p>
 
-**How it works end-to-end:**
+With `operator.defaultDomain` configured, the full lifecycle is hands-free:
 
-1. You deploy an app to Kubernetes — the operator creates a DSM reverse proxy rule for `myapp.home.example.com`
-2. Synology DNS Server automatically adds an A record: `myapp.home.example.com → <NAS IP>`
-3. Pi-hole forwards unknown queries to Synology DNS → resolves all your local hostnames
-4. Synology DNS forwards everything else to Cloudflare → external domains work normally
-5. HTTPS request hits the NAS, reverse proxy routes to the correct Kubernetes service
+1. You deploy an app to Kubernetes
+2. The operator detects the new Service or ArgoCD Application
+3. A DSM reverse proxy rule is created for `myapp.home.example.com → <backend IP:port>`
+4. The best matching TLS certificate is automatically assigned
+5. If an ACL profile is configured, access restrictions are applied immediately
+6. When you delete the app, the DSM rule is removed automatically
 
-**Result:** deploy an app, get a working HTTPS hostname — no DNS config, no manual steps.
-
-> **Setup checklist:**
-> - Install **Synology DNS Server** package in DSM Package Center
-> - Configure Synology DNS Server upstream: `1.1.1.1` (Cloudflare) or `8.8.8.8` (Google)
-> - Set Pi-hole upstream DNS to your NAS IP (port 53)
-> - Set `DEFAULT_DOMAIN` in the operator to your local domain (e.g. `home.example.com`)
-> - Ensure your router's DHCP hands out Pi-hole as the DNS server for all clients
+> **Optional — automatic DNS:** If you run the Synology DNS Server package, it can automatically create A records for hostnames the reverse proxy manages. Combined with forwarding your internal DNS queries to the NAS, even DNS is zero-touch.
 
 ---
 
@@ -80,14 +74,13 @@ Pair this with the following DNS chain for a fully automated home lab setup:
 |---|---|
 | Synology DSM | ≥ 7.0 (WebAPI access required) |
 | Kubernetes | ≥ 1.28 |
-| Synology DNS Server | optional — enables automatic DNS record creation |
 | ArgoCD | ≥ 2.8 — optional, only for the ArgoCD watcher |
 
 ---
 
 ## Installation
 
-### Helm (recommended)
+### Option A — Helm from GHCR (recommended for stable releases)
 
 ```bash
 helm upgrade --install synology-proxy-operator \
@@ -116,9 +109,30 @@ helm upgrade --install synology-proxy-operator \
 
 The Secret must have keys: `SYNOLOGY_URL`, `SYNOLOGY_USER`, `SYNOLOGY_PASSWORD`, `SYNOLOGY_SKIP_TLS_VERIFY`.
 
-### GitOps (ArgoCD + Helm)
+---
 
-The operator references credentials via `synology.existingSecret`. Create the Secret separately — using Sealed Secrets, External Secrets Operator, or a one-time `kubectl` command — before ArgoCD syncs the application.
+### Option B — Helm from Git (tracks `main` branch, includes latest unreleased changes)
+
+Use this when you want the latest fixes and features before a release, or when you need the CRD and chart to stay in sync with the operator binary automatically.
+
+```bash
+helm upgrade --install synology-proxy-operator \
+  ./helm/synology-proxy-operator \
+  --namespace synology-proxy-operator \
+  --create-namespace \
+  --set synology.existingSecret=synology-credentials \
+  --set operator.defaultDomain="home.example.com" \
+  --set image.tag=main \
+  --set image.pullPolicy=Always
+```
+
+Or clone the repo and point Helm at the local chart directory.
+
+---
+
+### Option C — GitOps with ArgoCD
+
+The operator references credentials via `synology.existingSecret`. Create the Secret separately before ArgoCD syncs.
 
 **Step 1 — create the credentials Secret** (once, outside ArgoCD):
 
@@ -131,7 +145,7 @@ kubectl create secret generic synology-credentials \
   --from-literal=SYNOLOGY_SKIP_TLS_VERIFY="false"
 ```
 
-**Step 2 — deploy with ArgoCD:**
+**Step 2 — deploy with ArgoCD (stable GHCR release):**
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -143,7 +157,7 @@ spec:
   source:
     repoURL: ghcr.io/phoeluga/charts
     chart: synology-proxy-operator
-    targetRevision: latest
+    targetRevision: ">=0.0.0"
     helm:
       valuesObject:
         operator:
@@ -154,10 +168,33 @@ spec:
     server: https://kubernetes.default.svc
     namespace: synology-proxy-operator
   syncPolicy:
-    automated: {}
+    automated:
+      prune: true
+      selfHeal: true
     syncOptions:
       - CreateNamespace=true
+      - ServerSideApply=true
 ```
+
+**Alternative — track `main` branch directly (chart + CRD + binary always in sync):**
+
+```yaml
+  source:
+    repoURL: 'https://github.com/phoeluga/synology-proxy-operator.git'
+    targetRevision: main
+    path: helm/synology-proxy-operator
+    helm:
+      valuesObject:
+        operator:
+          defaultDomain: "home.example.com"
+        synology:
+          existingSecret: synology-credentials
+        image:
+          tag: main
+          pullPolicy: Always
+```
+
+> `ServerSideApply=true` is required for ArgoCD to upgrade CRDs on sync. Without it, CRD schema changes (e.g. new fields) are not applied on `helm upgrade` or ArgoCD sync.
 
 > For a fully GitOps credential workflow, encrypt the Secret with [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets) or manage it via [External Secrets Operator](https://external-secrets.io) and commit only the encrypted/reference form to your cluster repo.
 
@@ -174,10 +211,10 @@ All settings are read from environment variables. Helm sets these automatically 
 | `SYNOLOGY_PASSWORD` | DSM password | required |
 | `SYNOLOGY_SKIP_TLS_VERIFY` | Skip TLS verification (self-signed certs) | `false` |
 | `DEFAULT_DOMAIN` | Domain appended to auto-derived hostnames, e.g. `home.example.com` | `""` |
-| `DEFAULT_ACL_PROFILE` | ACL profile applied when none is specified | `""` |
-| `RULE_NAMESPACE` | Namespace where auto-created `SynologyProxyRule` objects are placed | `synology-proxy-operator` |
+| `DEFAULT_ACL_PROFILE` | Synology ACL profile name applied to all rules that do not specify one | `""` |
+| `RULE_NAMESPACE` | Namespace where auto-created `SynologyProxyRule` objects are placed. Empty = source app namespace | `""` |
 | `ENABLE_ARGO_WATCHER` | Enable the ArgoCD Application watcher | `true` |
-| `WATCH_NAMESPACE` | Namespace or glob pattern (e.g. `app-*`) — all Services, Ingresses and ArgoCD Applications in matching namespaces are auto-managed without needing the `synology.proxy/enabled` annotation. Empty = annotation-only mode. | `""` |
+| `WATCH_NAMESPACE` | Namespace glob pattern (e.g. `app-*`) — Services, Ingresses and ArgoCD Applications in matching namespaces are auto-managed without needing the `synology.proxy/enabled` annotation. Empty = annotation-only mode. | `""` |
 
 ---
 
@@ -239,6 +276,7 @@ metadata:
     synology.proxy/source-host: "myapp.home.example.com"
     # Optional — pin to a specific Service; otherwise auto-scans the namespace
     synology.proxy/service-ref: "myapp/myapp-svc"
+    # Optional — restrict access using a Synology ACL profile
     synology.proxy/acl-profile: "LAN Only"
 spec:
   destination:
@@ -259,7 +297,7 @@ apiVersion: proxy.synology.io/v1alpha1
 kind: SynologyProxyRule
 metadata:
   name: myapp
-  namespace: synology-proxy-operator
+  namespace: myapp
 spec:
   serviceRef:
     name: myapp
@@ -282,6 +320,7 @@ spec:
   destinationPort: 8080
   destinationProtocol: http
   assignCertificate: true
+  aclProfile: "LAN Only"
 ```
 
 **Multiple public hostnames for the same backend:**
@@ -328,6 +367,17 @@ Certificate assignment is only called when the proxy record was just created or 
 
 ---
 
+## Access control (ACL profiles)
+
+Synology DSM supports Access Control Profiles that restrict which source IPs or networks can reach a reverse proxy rule. The operator integrates this at two levels:
+
+- **Global default** — set `operator.defaultACLProfile` (Helm) or `DEFAULT_ACL_PROFILE` (env) to apply a profile to every rule that does not specify one
+- **Per-rule** — set `synology.proxy/acl-profile` annotation on a Service, Ingress, or ArgoCD Application, or set `spec.aclProfile` on a `SynologyProxyRule` directly
+
+Profile names are resolved to DSM UUIDs automatically and cached for 5 minutes to reduce API calls.
+
+---
+
 ## Backend discovery
 
 When `destinationHost` / `destinationPort` are not set:
@@ -342,7 +392,7 @@ When `destinationHost` / `destinationPort` are not set:
 
 | Annotation | Applies to | Description | Default |
 |---|---|---|---|
-| `synology.proxy/enabled` | Service, Ingress, ArgoCD App | `"true"` to enable proxy management | — required |
+| `synology.proxy/enabled` | Service, Ingress, ArgoCD App | `"true"` to enable proxy management | required |
 | `synology.proxy/source-host` | Service, Ingress, ArgoCD App | Public FQDN override | derived from name + domain |
 | `synology.proxy/acl-profile` | Service, Ingress, ArgoCD App | Synology ACL profile name | `DEFAULT_ACL_PROFILE` |
 | `synology.proxy/destination-protocol` | Service, Ingress, ArgoCD App | Backend protocol: `http` or `https` | `http` |
@@ -361,7 +411,7 @@ apiVersion: proxy.synology.io/v1alpha1
 kind: SynologyProxyRule
 metadata:
   name: myapp
-  namespace: synology-proxy-operator
+  namespace: myapp
 spec:
   # ── Frontend ───────────────────────────────────────────────────────────────
   sourceHost: myapp.home.example.com     # optional when DEFAULT_DOMAIN is set
@@ -407,18 +457,17 @@ spec:
 ## Status and observability
 
 ```bash
-kubectl get spr -n synology-proxy-operator
+kubectl get spr -A
 ```
 
 ```
-NAME     SOURCE HOST                    DESTINATION     SYNCED   RECORDS   AGE
-myapp    myapp.home.example.com         192.168.1.55    true     1         12m
-nas      photos.home.example.com        192.168.1.100   true     1         3d
-multi    multi.home.example.com         192.168.1.55    true     2         1h
+NAMESPACE   NAME                     SOURCE HOST                DESTINATION     SYNCED   RECORDS   AGE
+myapp       myapp--myapp             myapp.home.example.com     192.168.1.55    true     1         12m
+nas         nas-photos               photos.home.example.com    192.168.1.100   true     1         3d
 ```
 
 ```bash
-kubectl describe spr myapp -n synology-proxy-operator
+kubectl describe spr myapp -n myapp
 ```
 
 | Status field | Description |
@@ -436,8 +485,7 @@ kubectl describe spr myapp -n synology-proxy-operator
 **Force re-sync:**
 
 ```bash
-kubectl annotate spr myapp -n synology-proxy-operator \
-  force-sync="$(date +%s)" --overwrite
+kubectl annotate spr myapp -n myapp force-sync="$(date +%s)" --overwrite
 ```
 
 ---
@@ -452,10 +500,10 @@ kubectl annotate spr myapp -n synology-proxy-operator \
 | `synology.skipTLSVerify` | Skip TLS certificate check | `false` |
 | `synology.existingSecret` | Name of an existing Secret with DSM credentials | `""` |
 | `operator.defaultDomain` | Domain suffix for auto-derived hostnames | `""` |
-| `operator.defaultACLProfile` | ACL profile applied when none is specified | `""` |
+| `operator.defaultACLProfile` | ACL profile applied when none is specified per rule | `""` |
 | `operator.enableArgoWatcher` | Enable ArgoCD Application watcher | `true` |
-| `operator.watchNamespace` | Namespace or glob (e.g. `app-*`) for annotation-free auto-management | `""` (annotation-only) |
-| `operator.ruleNamespace` | Namespace for auto-created `SynologyProxyRule` objects | `synology-proxy-operator` |
+| `operator.watchNamespace` | Namespace glob (e.g. `app-*`) for annotation-free auto-management | `""` |
+| `operator.ruleNamespace` | Namespace for auto-created `SynologyProxyRule` objects. Empty = source app namespace | `""` |
 | `installCRDs` | Install CRDs via Helm | `true` |
 | `leaderElection` | Enable leader election for HA deployments | `false` |
 
