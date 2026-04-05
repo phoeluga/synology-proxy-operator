@@ -51,10 +51,6 @@ The first two controllers are purely Kubernetes-side. All DSM interaction flows 
 
 ## Zero-touch reverse proxy management
 
-<p align="center">
-    <img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/chart_zeroTouch.png" alt="" width="95%" >
-</p>
-
 With `operator.defaultDomain` configured, the full lifecycle is hands-free:
 
 1. You deploy an app to Kubernetes
@@ -64,7 +60,10 @@ With `operator.defaultDomain` configured, the full lifecycle is hands-free:
 5. If an ACL profile is configured, access restrictions are applied immediately
 6. When you delete the app, the DSM rule is removed automatically
 
-> **Optional — automatic DNS:** If you run the Synology DNS Server package, it can automatically create A records for hostnames the reverse proxy manages. Combined with forwarding your internal DNS queries to the NAS, even DNS is zero-touch.
+### Optional — automatic DNS:
+If you run the Synology DNS Server package, it can automatically create A records for hostnames the reverse proxy manages. Combined with forwarding your internal DNS queries to the NAS, even DNS is zero-touch.
+
+If you already use some DNS server like e.g. Pi-Hole you can set the upstream DNS to your NAS IP. This will provide an end-to-end workflow of provisioning new services to become available.
 
 ---
 
