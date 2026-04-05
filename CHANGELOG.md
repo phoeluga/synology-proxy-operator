@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.0.7](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.6...v0.0.7) (2026-04-05)
+
+
+### Features
+
+* suppress glob auto-discovery when manual SPR exists in namespace ([e2a17d2](https://github.com/phoeluga/synology-proxy-operator/commit/e2a17d269e9ef306d2caf5f543d133885905c966))
+
+
+### Bug Fixes
+
+* add disableAutoDiscoveryIfSPRExists to values.schema.json ([3d05e7e](https://github.com/phoeluga/synology-proxy-operator/commit/3d05e7edf115a88cdf0e6eb7a1d78b7da30abe90))
+* adding namespace rules ([a980e7e](https://github.com/phoeluga/synology-proxy-operator/commit/a980e7e724a1135e9bed033f166beb1b5b3c98c4))
+* check source namespace for manual SPR, not rule namespace ([af6db06](https://github.com/phoeluga/synology-proxy-operator/commit/af6db063d0737f894462803de1a247a0db1fd8ac))
+* correct goimports grouping in sprdiscovery.go ([9460264](https://github.com/phoeluga/synology-proxy-operator/commit/946026405d879b8e495b1df09d216268526b2a24))
+
 ## [0.0.6](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.5...v0.0.6) (2026-04-03)
 
 
