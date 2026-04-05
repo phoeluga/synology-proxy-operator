@@ -3,8 +3,9 @@ package controller
 import (
 	"context"
 
-	proxyv1alpha1 "github.com/phoeluga/synology-proxy-operator/api/v1alpha1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	proxyv1alpha1 "github.com/phoeluga/synology-proxy-operator/api/v1alpha1"
 )
 
 // hasManualSPRInNamespace returns true when at least one SynologyProxyRule in
