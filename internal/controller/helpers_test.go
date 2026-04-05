@@ -103,11 +103,11 @@ func TestIsResourceEnabled(t *testing.T) {
 	r := &ServiceIngressReconciler{WatchNamespace: "app-*"}
 
 	tests := []struct {
-		name        string
-		namespace   string
-		annotations map[string]string
+		name          string
+		namespace     string
+		annotations   map[string]string
 		nsAnnotations map[string]string
-		want        bool
+		want          bool
 	}{
 		{
 			name:        "annotation enabled, namespace not matching",
@@ -134,18 +134,18 @@ func TestIsResourceEnabled(t *testing.T) {
 			want:        false,
 		},
 		{
-			name:        "no annotation, namespace matches glob but auto-discovery disabled on namespace",
-			namespace:   "app-foo",
-			annotations: map[string]string{},
+			name:          "no annotation, namespace matches glob but auto-discovery disabled on namespace",
+			namespace:     "app-foo",
+			annotations:   map[string]string{},
 			nsAnnotations: map[string]string{AnnotationAutoDiscovery: "false"},
-			want:        false,
+			want:          false,
 		},
 		{
-			name:        "explicit opt-in overrides namespace auto-discovery=false",
-			namespace:   "app-foo",
-			annotations: map[string]string{AnnotationEnabled: "true"},
+			name:          "explicit opt-in overrides namespace auto-discovery=false",
+			namespace:     "app-foo",
+			annotations:   map[string]string{AnnotationEnabled: "true"},
 			nsAnnotations: map[string]string{AnnotationAutoDiscovery: "false"},
-			want:        true,
+			want:          true,
 		},
 	}
 
