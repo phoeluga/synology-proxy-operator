@@ -31,8 +31,14 @@ jobs:
       - name: Run go vet
         run: go vet ./...
 
+      - name: Install setup-envtest
+        run: go install sigs.k8s.io/controller-runtime/tools/setup-envtest@latest
+
       - name: Run tests
-        run: go test ./... -v -coverprofile=coverage.out
+        run: |
+          KUBEBUILDER_ASSETS="$(setup-envtest use 1.32.x --bin-dir /tmp/envtest -p path)"
+          export KUBEBUILDER_ASSETS
+          go test ./... -v -coverprofile=coverage.out
 
       - name: Upload coverage
         uses: actions/upload-artifact@v7
