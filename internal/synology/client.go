@@ -257,7 +257,11 @@ func (c *Client) post(ctx context.Context, endpoint string, form url.Values) (js
 	// transient server errors) instead of a JSON response. Detect this and
 	// force a re-login + single retry so the caller doesn't get a parse error.
 	if len(body) > 0 && body[0] == '<' {
-		c.log.Info("DSM returned HTML instead of JSON, re-authenticating and retrying", "endpoint", endpoint)
+		c.log.Info("DSM returned HTML instead of JSON, re-authenticating and retrying",
+			"endpoint", endpoint,
+			"http_status", resp.StatusCode,
+			"body", string(body),
+		)
 		c.mu.Lock()
 		c.sid = ""
 		c.mu.Unlock()
