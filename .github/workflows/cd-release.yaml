@@ -120,7 +120,7 @@ jobs:
           helm push dist/*.tgz oci://ghcr.io/phoeluga/charts
 
       - name: Install crane
-        uses: imjasonh/setup-crane@v0.4
+        uses: imjasonh/setup-crane@v0.5
 
       - name: Sign Helm chart (keyless)
         run: |
