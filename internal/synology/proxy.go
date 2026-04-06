@@ -136,7 +136,7 @@ func (c *Client) UpsertProxyRule(ctx context.Context, rule ProxyRule) (uuid stri
 
 	if existing != nil {
 		if proxyRecordEqual(existing, &entry) {
-			c.log.Info("Proxy record unchanged, skipping update", "description", r.Description, "uuid", existing.UUID)
+			c.log.V(1).Info("Proxy record unchanged, skipping update", "description", r.Description, "uuid", existing.UUID)
 			return existing.UUID, false, nil
 		}
 
@@ -150,7 +150,7 @@ func (c *Client) UpsertProxyRule(ctx context.Context, rule ProxyRule) (uuid stri
 		if err != nil {
 			return "", false, fmt.Errorf("marshalling entry: %w", err)
 		}
-		c.log.Info("DSM proxy payload", "method", "update", "entry", string(entryJSON))
+		c.log.V(1).Info("DSM proxy payload", "method", "update", "entry", string(entryJSON))
 
 		_, err = c.post(ctx, proxyEndpoint, url.Values{
 			"api":     {proxyAPI},
@@ -171,7 +171,7 @@ func (c *Client) UpsertProxyRule(ctx context.Context, rule ProxyRule) (uuid stri
 	if err != nil {
 		return "", false, fmt.Errorf("marshalling entry: %w", err)
 	}
-	c.log.Info("DSM proxy payload", "method", "create", "entry", string(entryJSON))
+	c.log.V(1).Info("DSM proxy payload", "method", "create", "entry", string(entryJSON))
 
 	data, err := c.post(ctx, proxyEndpoint, url.Values{
 		"api":     {proxyAPI},
@@ -220,7 +220,7 @@ func (c *Client) DeleteProxyRecord(ctx context.Context, name string) (bool, erro
 		return false, fmt.Errorf("looking up record to delete: %w", err)
 	}
 	if existing == nil {
-		c.log.Info("Proxy record not found, nothing to delete", "description", name)
+		c.log.V(1).Info("Proxy record not found, nothing to delete", "description", name)
 		return false, nil
 	}
 

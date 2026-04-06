@@ -212,7 +212,7 @@ func (c *Client) login(ctx context.Context) error {
 	c.sid = result.Data.SID
 	c.synoToken = result.Data.SynoToken
 	c.loginTime = time.Now()
-	c.log.Info("DSM login successful")
+	c.log.V(1).Info("DSM login successful")
 	return nil
 }
 

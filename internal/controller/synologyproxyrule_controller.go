@@ -304,7 +304,7 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 		}
 	}
 
-	log.Info("Successfully reconciled proxy rule",
+	log.V(1).Info("Successfully reconciled proxy rule",
 		"sourceHost", primarySourceHost,
 		"additionalHosts", len(spec.AdditionalSourceHosts),
 		"destination", fmt.Sprintf("%s:%d", destHost, destPort),
@@ -331,7 +331,7 @@ func (r *SynologyProxyRuleReconciler) discoverBackend(ctx context.Context, log l
 		}
 		h, p := extractFromService(svc)
 		if h != "" && p != 0 {
-			log.Info("Discovered backend from Service", "service", spec.ServiceRef.Name, "host", h, "port", p)
+			log.V(1).Info("Discovered backend from Service", "service", spec.ServiceRef.Name, "host", h, "port", p)
 			return h, p, nil
 		}
 		log.Info("Service found but has no external IP yet, will retry", "service", spec.ServiceRef.Name)
@@ -350,7 +350,7 @@ func (r *SynologyProxyRuleReconciler) discoverBackend(ctx context.Context, log l
 		}
 		h, p := extractFromIngress(ing)
 		if h != "" {
-			log.Info("Discovered backend from Ingress", "ingress", spec.IngressRef.Name, "host", h, "port", p)
+			log.V(1).Info("Discovered backend from Ingress", "ingress", spec.IngressRef.Name, "host", h, "port", p)
 			return h, p, nil
 		}
 		log.Info("Ingress found but has no external IP yet, will retry", "ingress", spec.IngressRef.Name)
@@ -369,7 +369,7 @@ func (r *SynologyProxyRuleReconciler) discoverBackend(ctx context.Context, log l
 		}
 		h, p := extractFromService(svc)
 		if h != "" && p != 0 {
-			log.Info("Auto-discovered backend from LoadBalancer service",
+			log.V(1).Info("Auto-discovered backend from LoadBalancer service",
 				"service", svc.Name, "host", h, "port", p)
 			return h, p, nil
 		}

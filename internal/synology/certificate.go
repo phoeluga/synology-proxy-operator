@@ -51,14 +51,14 @@ func (c *Client) FindMatchingCertID(ctx context.Context, hostname string) (id, d
 		patterns := append([]string{cert.Subject.CommonName}, cert.Subject.SubAltName...)
 		for _, pattern := range patterns {
 			if matchesCertPattern(pattern, hostname) {
-				c.log.Info("Found matching certificate", "cert", cert.Desc, "pattern", pattern, "hostname", hostname)
+				c.log.V(1).Info("Found matching certificate", "cert", cert.Desc, "pattern", pattern, "hostname", hostname)
 				return cert.ID, cert.Desc, nil
 			}
 		}
 	}
 
 	if defaultID != "" {
-		c.log.Info("No specific certificate matched, using DSM default", "cert", defaultDesc, "hostname", hostname)
+		c.log.V(1).Info("No specific certificate matched, using DSM default", "cert", defaultDesc, "hostname", hostname)
 		return defaultID, defaultDesc, nil
 	}
 
@@ -87,7 +87,7 @@ func (c *Client) AssignCertificate(ctx context.Context, proxyUUID, hostname stri
 		return fmt.Errorf("finding certificate for %s: %w", hostname, err)
 	}
 	if certID == "" {
-		c.log.Info("No certificates found in DSM, skipping assignment", "hostname", hostname)
+		c.log.V(1).Info("No certificates found in DSM, skipping assignment", "hostname", hostname)
 		return nil
 	}
 
