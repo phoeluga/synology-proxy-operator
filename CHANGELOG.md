@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.0.7](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.6...v0.0.7) (2026-04-06)
+
+
+### Features
+
+* add operator.extraArgs to Helm chart ([c2c09f9](https://github.com/phoeluga/synology-proxy-operator/commit/c2c09f96421d4cc7a378ad891fd39396d5140781))
+* suppress glob auto-discovery when manual SPR exists in namespace ([e2a17d2](https://github.com/phoeluga/synology-proxy-operator/commit/e2a17d269e9ef306d2caf5f543d133885905c966))
+
+
+### Bug Fixes
+
+* add disableAutoDiscoveryIfSPRExists to values.schema.json ([3d05e7e](https://github.com/phoeluga/synology-proxy-operator/commit/3d05e7edf115a88cdf0e6eb7a1d78b7da30abe90))
+* adding namespace rules ([a980e7e](https://github.com/phoeluga/synology-proxy-operator/commit/a980e7e724a1135e9bed033f166beb1b5b3c98c4))
+* check source namespace for manual SPR, not rule namespace ([af6db06](https://github.com/phoeluga/synology-proxy-operator/commit/af6db063d0737f894462803de1a247a0db1fd8ac))
+* correct goimports grouping in sprdiscovery.go ([9460264](https://github.com/phoeluga/synology-proxy-operator/commit/946026405d879b8e495b1df09d216268526b2a24))
+* log HTML response body and HTTP status when DSM returns non-JSON ([ad109e7](https://github.com/phoeluga/synology-proxy-operator/commit/ad109e783a1ef6ab10519de04a687baa8561bd55))
+* re-enqueue Service/Ingress on SPR deletion; handle HTML DSM responses ([70fc458](https://github.com/phoeluga/synology-proxy-operator/commit/70fc458545b830234616021dcc86db85781be5c3))
+
+
+### Dependencies
+
+* **deps:** bump actions/create-github-app-token from 1 to 3 ([41538ee](https://github.com/phoeluga/synology-proxy-operator/commit/41538ee86ffce5971438c92eb500bd3cf3e3e742))
+* **deps:** bump imjasonh/setup-crane from 0.4 to 0.5 ([41538ee](https://github.com/phoeluga/synology-proxy-operator/commit/41538ee86ffce5971438c92eb500bd3cf3e3e742))
+
 ## [0.0.6](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.5...v0.0.6) (2026-04-03)
 
 
