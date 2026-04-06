@@ -15,6 +15,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	proxyv1alpha1 "github.com/phoeluga/synology-proxy-operator/api/v1alpha1"
 )
@@ -50,16 +52,31 @@ type ServiceIngressReconciler struct {
 // +kubebuilder:rbac:groups=networking.k8s.io,resources=ingresses,verbs=get;list;watch
 
 // SetupWithManager registers two controllers — one for Services, one for Ingresses.
+// Both controllers also watch SynologyProxyRule events so that if an auto-created
+// rule is deleted externally (e.g. via kubectl), the source Service/Ingress is
+// re-enqueued and the rule is recreated on the next reconcile.
 func (r *ServiceIngressReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	// Map an SPR event back to its source Service (if managed-by-object label is set).
+	sprToService := handler.MapFunc(func(_ context.Context, obj client.Object) []reconcile.Request {
+		ns := obj.GetLabels()["proxy.synology.io/managed-by-object-ns"]
+		name := obj.GetLabels()["proxy.synology.io/managed-by-object"]
+		if ns == "" || name == "" {
+			return nil
+		}
+		return []reconcile.Request{{NamespacedName: types.NamespacedName{Namespace: ns, Name: name}}}
+	})
+
 	if err := ctrl.NewControllerManagedBy(mgr).
 		Named("service-proxy").
 		For(&corev1.Service{}).
+		Watches(&proxyv1alpha1.SynologyProxyRule{}, handler.EnqueueRequestsFromMapFunc(sprToService)).
 		Complete(&serviceReconcileAdapter{r}); err != nil {
 		return err
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		Named("ingress-proxy").
 		For(&networkingv1.Ingress{}).
+		Watches(&proxyv1alpha1.SynologyProxyRule{}, handler.EnqueueRequestsFromMapFunc(sprToService)).
 		Complete(&ingressReconcileAdapter{r})
 }
 

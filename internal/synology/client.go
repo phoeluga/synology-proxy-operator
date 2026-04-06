@@ -253,6 +253,28 @@ func (c *Client) post(ctx context.Context, endpoint string, form url.Values) (js
 		return nil, fmt.Errorf("reading response from %s: %w", endpoint, err)
 	}
 
+	// DSM occasionally returns an HTML error page (e.g. on session expiry or
+	// transient server errors) instead of a JSON response. Detect this and
+	// force a re-login + single retry so the caller doesn't get a parse error.
+	if len(body) > 0 && body[0] == '<' {
+		c.log.Info("DSM returned HTML instead of JSON, re-authenticating and retrying", "endpoint", endpoint)
+		c.mu.Lock()
+		c.sid = ""
+		c.mu.Unlock()
+		if err := c.ensureLoggedIn(ctx); err != nil {
+			return nil, fmt.Errorf("re-login after HTML response: %w", err)
+		}
+		c.mu.Lock()
+		form.Set("_sid", c.sid)
+		freshToken := c.synoToken
+		c.mu.Unlock()
+		if freshToken != "" {
+			form.Set("SynoToken", freshToken)
+			req.Header.Set("X-SYNO-TOKEN", freshToken)
+		}
+		return c.post(ctx, endpoint, form)
+	}
+
 	var result apiResponse
 	if err := json.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("parsing response from %s: %w", endpoint, err)
