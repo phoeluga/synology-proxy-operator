@@ -56,6 +56,12 @@
           "description": "Namespace where auto-generated SynologyProxyRule objects are created. Empty = source app namespace (recommended)",
           "default": ""
         },
+        "extraArgs": {
+          "type": "array",
+          "description": "Additional flags passed to the operator binary, e.g. [\"--zap-log-level=debug\"]",
+          "items": {"type": "string"},
+          "default": []
+        },
         "disableAutoDiscoveryIfSPRExists": {
           "type": "boolean",
           "description": "Suppress glob-based auto-discovery for any namespace that already contains a manually-created SynologyProxyRule",
