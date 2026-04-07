@@ -128,3 +128,44 @@ func (c *Client) AssignCertificate(ctx context.Context, proxyUUID, hostname stri
 	c.log.Info("Certificate assigned successfully", "cert", certDesc, "hostname", hostname)
 	return nil
 }
+
+// UnassignCertificate removes the certificate service entry for a proxy record.
+// DSM does not clean these up when a proxy record is deleted, so the operator
+// must do it explicitly to avoid orphaned entries in the certificate settings UI.
+// proxyUUID is the DSM UUID of the proxy record; hostname is the public FQDN
+// (used as display_name in the service entry).
+func (c *Client) UnassignCertificate(ctx context.Context, proxyUUID, hostname string) error {
+	settings := []map[string]any{
+		{
+			"service": map[string]any{
+				"display_name":  hostname,
+				"isPkg":         false,
+				"multiple_cert": true,
+				"owner":         "root",
+				"service":       proxyUUID,
+				"subscriber":    "ReverseProxy",
+				"user_setable":  true,
+			},
+			"old_id": "",
+			"id":     "", // empty id removes the assignment
+		},
+	}
+
+	settingsJSON, err := json.Marshal(settings)
+	if err != nil {
+		return fmt.Errorf("marshalling certificate unassign settings: %w", err)
+	}
+
+	_, err = c.post(ctx, certEndpoint, url.Values{
+		"api":      {"SYNO.Core.Certificate.Service"},
+		"method":   {"set"},
+		"version":  {"1"},
+		"settings": {string(settingsJSON)},
+	})
+	if err != nil {
+		return fmt.Errorf("unassigning certificate from %s: %w", hostname, err)
+	}
+
+	c.log.Info("Certificate unassigned from proxy record", "hostname", hostname, "proxyUUID", proxyUUID)
+	return nil
+}

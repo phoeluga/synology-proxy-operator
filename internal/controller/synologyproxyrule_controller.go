@@ -87,8 +87,39 @@ func (r *SynologyProxyRuleReconciler) Reconcile(ctx context.Context, req ctrl.Re
 // It removes all DSM records tracked in status.ManagedRecords, falling back
 // to the primary description if status is empty (e.g. pre-migration objects).
 func (r *SynologyProxyRuleReconciler) reconcileDelete(ctx context.Context, log logr.Logger, rule *proxyv1alpha1.SynologyProxyRule) (ctrl.Result, error) {
+	// Build a UUID→SourceHost map from status for certificate cleanup.
+	uuidToHost := make(map[string]string, len(rule.Status.ManagedRecords))
+	for _, rec := range rule.Status.ManagedRecords {
+		if rec.UUID != "" {
+			uuidToHost[rec.UUID] = rec.SourceHost
+		}
+	}
+
 	descriptions := managedDescriptions(rule)
 	for _, desc := range descriptions {
+		// Look up the record to get its UUID before deleting it.
+		existing, err := r.SynologyClient.GetProxyRecord(ctx, desc)
+		if err != nil {
+			log.Error(err, "Failed to look up proxy record before delete", "description", desc)
+			r.setCondition(rule, proxyv1alpha1.ConditionSynced, metav1.ConditionFalse,
+				proxyv1alpha1.ReasonSyncFailed, err.Error())
+			_ = r.Status().Update(ctx, rule)
+			return ctrl.Result{RequeueAfter: requeueAfter}, nil
+		}
+		if existing != nil {
+			// Remove the certificate service entry before deleting the proxy record.
+			hostname := uuidToHost[existing.UUID]
+			if hostname == "" {
+				hostname = existing.Frontend.FQDN // fall back to live DSM data
+			}
+			if hostname != "" {
+				if err := r.SynologyClient.UnassignCertificate(ctx, existing.UUID, hostname); err != nil {
+					// Non-fatal: log and continue — the proxy record delete is more important.
+					log.Error(err, "Failed to unassign certificate (non-fatal), continuing delete", "hostname", hostname)
+				}
+			}
+		}
+
 		log.Info("Deleting proxy record from DSM", "description", desc)
 		if _, err := r.SynologyClient.DeleteProxyRecord(ctx, desc); err != nil {
 			log.Error(err, "Failed to delete proxy record from DSM")
