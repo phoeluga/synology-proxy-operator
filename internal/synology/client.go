@@ -253,28 +253,31 @@ func (c *Client) post(ctx context.Context, endpoint string, form url.Values) (js
 		return nil, fmt.Errorf("reading response from %s: %w", endpoint, err)
 	}
 
-	// DSM occasionally returns an HTML error page (e.g. on session expiry or
-	// transient server errors) instead of a JSON response. Detect this and
-	// force a re-login + single retry so the caller doesn't get a parse error.
+	// DSM occasionally returns an HTML error page instead of JSON. This happens
+	// either on session expiry or on transient server errors (e.g. HTTP 504
+	// gateway timeout). Detect by checking the first byte, log the details,
+	// and retry once. Only force a re-login when the HTTP status suggests an
+	// auth issue (non-5xx); for server-side timeouts a bare retry is enough.
 	if len(body) > 0 && body[0] == '<' {
-		c.log.Info("DSM returned HTML instead of JSON, re-authenticating and retrying",
+		c.log.Info("DSM returned HTML instead of JSON, retrying",
 			"endpoint", endpoint,
 			"http_status", resp.StatusCode,
-			"body", string(body),
 		)
-		c.mu.Lock()
-		c.sid = ""
-		c.mu.Unlock()
-		if err := c.ensureLoggedIn(ctx); err != nil {
-			return nil, fmt.Errorf("re-login after HTML response: %w", err)
-		}
-		c.mu.Lock()
-		form.Set("_sid", c.sid)
-		freshToken := c.synoToken
-		c.mu.Unlock()
-		if freshToken != "" {
-			form.Set("SynoToken", freshToken)
-			req.Header.Set("X-SYNO-TOKEN", freshToken)
+		if resp.StatusCode < 500 {
+			// Likely a session issue — re-authenticate before retrying.
+			c.mu.Lock()
+			c.sid = ""
+			c.mu.Unlock()
+			if err := c.ensureLoggedIn(ctx); err != nil {
+				return nil, fmt.Errorf("re-login after HTML response: %w", err)
+			}
+			c.mu.Lock()
+			form.Set("_sid", c.sid)
+			freshToken := c.synoToken
+			c.mu.Unlock()
+			if freshToken != "" {
+				form.Set("SynoToken", freshToken)
+			}
 		}
 		return c.post(ctx, endpoint, form)
 	}
