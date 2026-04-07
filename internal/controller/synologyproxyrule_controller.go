@@ -268,6 +268,12 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 		}
 	}
 
+	// --- Build a description→ManagedRecord index from current status for cert cleanup ---
+	prevRecordByDesc := make(map[string]proxyv1alpha1.ManagedRecord, len(rule.Status.ManagedRecords))
+	for _, rec := range rule.Status.ManagedRecords {
+		prevRecordByDesc[rec.Description] = rec
+	}
+
 	// --- Upsert one DSM record per source host ---
 	assignCert := spec.AssignCertificate == nil || *spec.AssignCertificate
 	managedRecords := make([]proxyv1alpha1.ManagedRecord, 0, len(allHosts))
@@ -287,6 +293,15 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 		}
 
 		if assignCert && written && uuid != "" {
+			// If the record was recreated (new UUID differs from what we tracked in status),
+			// unassign the old cert entry first to prevent orphaned entries in DSM.
+			if prev, ok := prevRecordByDesc[entry.desc]; ok && prev.UUID != "" && prev.UUID != uuid {
+				log.Info("Proxy record was recreated with new UUID, unassigning old certificate entry",
+					"description", entry.desc, "oldUUID", prev.UUID, "newUUID", uuid)
+				if err := r.SynologyClient.UnassignCertificate(ctx, prev.UUID, entry.sourceHost); err != nil {
+					log.Error(err, "Failed to unassign old certificate entry (non-fatal)", "oldUUID", prev.UUID)
+				}
+			}
 			if err := r.SynologyClient.AssignCertificate(ctx, uuid, entry.sourceHost); err != nil {
 				log.Error(err, "Certificate assignment failed (non-fatal)", "hostname", entry.sourceHost)
 			}
