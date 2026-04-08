@@ -120,6 +120,11 @@ type ManagedRecord struct {
 	UUID string `json:"uuid"`
 	// SourceHost is the public FQDN this record fronts.
 	SourceHost string `json:"sourceHost"`
+	// CertID is the DSM certificate ID currently assigned to this record.
+	// Stored so subsequent AssignCertificate calls can pass it as old_id,
+	// causing DSM to replace the existing entry rather than adding a new one.
+	// +optional
+	CertID string `json:"certID,omitempty"`
 }
 
 // SynologyProxyRuleStatus defines the observed state of SynologyProxyRule.

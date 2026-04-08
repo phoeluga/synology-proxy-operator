@@ -81,18 +81,22 @@ func matchesCertPattern(pattern, hostname string) bool {
 // AssignCertificate assigns the best matching certificate to a reverse proxy record.
 // Falls back to the DSM default certificate when no specific match is found.
 // proxyUUID is the DSM UUID of the proxy record; hostname is the public FQDN.
-func (c *Client) AssignCertificate(ctx context.Context, proxyUUID, hostname string) error {
+// prevCertID is the cert ID previously assigned (from status.managedRecords[].certID),
+// passed as old_id so DSM replaces the existing entry rather than adding a new one.
+// Pass "" for prevCertID on the first assignment.
+// Returns the assigned certificate ID for storage in status.
+func (c *Client) AssignCertificate(ctx context.Context, proxyUUID, hostname, prevCertID string) (string, error) {
 	certID, certDesc, err := c.FindMatchingCertID(ctx, hostname)
 	if err != nil {
-		return fmt.Errorf("finding certificate for %s: %w", hostname, err)
+		return "", fmt.Errorf("finding certificate for %s: %w", hostname, err)
 	}
 	if certID == "" {
 		c.log.V(1).Info("No certificates found in DSM, skipping assignment", "hostname", hostname)
-		return nil
+		return "", nil
 	}
 
 	c.log.Info("Assigning certificate to proxy record",
-		"cert", certDesc, "hostname", hostname, "proxyUUID", proxyUUID)
+		"cert", certDesc, "hostname", hostname, "proxyUUID", proxyUUID, "oldCert", prevCertID)
 
 	settings := []map[string]any{
 		{
@@ -105,14 +109,14 @@ func (c *Client) AssignCertificate(ctx context.Context, proxyUUID, hostname stri
 				"subscriber":    "ReverseProxy",
 				"user_setable":  true,
 			},
-			"old_id": "",
+			"old_id": prevCertID,
 			"id":     certID,
 		},
 	}
 
 	settingsJSON, err := json.Marshal(settings)
 	if err != nil {
-		return fmt.Errorf("marshalling certificate settings: %w", err)
+		return "", fmt.Errorf("marshalling certificate settings: %w", err)
 	}
 
 	_, err = c.post(ctx, certEndpoint, url.Values{
@@ -122,11 +126,11 @@ func (c *Client) AssignCertificate(ctx context.Context, proxyUUID, hostname stri
 		"settings": {string(settingsJSON)},
 	})
 	if err != nil {
-		return fmt.Errorf("assigning certificate to %s: %w", hostname, err)
+		return "", fmt.Errorf("assigning certificate to %s: %w", hostname, err)
 	}
 
 	c.log.Info("Certificate assigned successfully", "cert", certDesc, "hostname", hostname)
-	return nil
+	return certID, nil
 }
 
 // UnassignCertificate removes the certificate service entry for a proxy record.

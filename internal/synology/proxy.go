@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"reflect"
+	"strings"
 )
 
 const (
@@ -180,6 +181,20 @@ func (c *Client) UpsertProxyRule(ctx context.Context, rule ProxyRule) (uuid stri
 		"entry":   {string(entryJSON)},
 	})
 	if err != nil {
+		// DSM error 4154 means the record already exists — this happens when a
+		// previous create timed out (504) but DSM created the record anyway before
+		// returning the error. Treat it as a successful create by looking up the
+		// existing record instead of surfacing an error to the caller.
+		if isAlreadyExistsError(err) {
+			c.log.Info("DSM returned 'already exists' on create (likely after 504 retry), looking up existing record", "description", r.Description)
+			rec, lookupErr := c.GetProxyRecord(ctx, r.Description)
+			if lookupErr != nil {
+				return "", false, fmt.Errorf("DSM create proxy record: %w (lookup after conflict also failed: %v)", err, lookupErr)
+			}
+			if rec != nil {
+				return rec.UUID, written, nil
+			}
+		}
 		return "", false, fmt.Errorf("DSM create proxy record: %w", err)
 	}
 
@@ -241,4 +256,11 @@ func (c *Client) DeleteProxyRecord(ctx context.Context, name string) (bool, erro
 
 	c.log.Info("Deleted proxy record", "description", name, "uuid", existing.UUID)
 	return true, nil
+}
+
+// isAlreadyExistsError returns true when the DSM API returned error code 4154,
+// which means the record already exists. This happens when a create request
+// timed out (504) but DSM created the record before returning the error.
+func isAlreadyExistsError(err error) bool {
+	return strings.Contains(err.Error(), "4154")
 }

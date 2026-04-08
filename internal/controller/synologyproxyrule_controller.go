@@ -292,25 +292,38 @@ func (r *SynologyProxyRuleReconciler) reconcileUpsert(ctx context.Context, log l
 			return ctrl.Result{RequeueAfter: requeueAfter}, nil
 		}
 
-		if assignCert && written && uuid != "" {
-			// If the record was recreated (new UUID differs from what we tracked in status),
-			// unassign the old cert entry first to prevent orphaned entries in DSM.
-			if prev, ok := prevRecordByDesc[entry.desc]; ok && prev.UUID != "" && prev.UUID != uuid {
+		prevCertID := ""
+		if prev, ok := prevRecordByDesc[entry.desc]; ok {
+			if prev.UUID != "" && prev.UUID != uuid {
+				// Record was recreated with a new UUID — unassign the old cert entry first.
 				log.Info("Proxy record was recreated with new UUID, unassigning old certificate entry",
 					"description", entry.desc, "oldUUID", prev.UUID, "newUUID", uuid)
 				if err := r.SynologyClient.UnassignCertificate(ctx, prev.UUID, entry.sourceHost); err != nil {
 					log.Error(err, "Failed to unassign old certificate entry (non-fatal)", "oldUUID", prev.UUID)
 				}
+			} else {
+				// Same UUID — pass previous cert ID as old_id so DSM replaces rather than adds.
+				prevCertID = prev.CertID
 			}
-			if err := r.SynologyClient.AssignCertificate(ctx, uuid, entry.sourceHost); err != nil {
-				log.Error(err, "Certificate assignment failed (non-fatal)", "hostname", entry.sourceHost)
+		}
+
+		assignedCertID := ""
+		if assignCert && written && uuid != "" {
+			var certErr error
+			assignedCertID, certErr = r.SynologyClient.AssignCertificate(ctx, uuid, entry.sourceHost, prevCertID)
+			if certErr != nil {
+				log.Error(certErr, "Certificate assignment failed (non-fatal)", "hostname", entry.sourceHost)
 			}
+		} else if prev, ok := prevRecordByDesc[entry.desc]; ok {
+			// Record unchanged — carry forward the previously stored cert ID.
+			assignedCertID = prev.CertID
 		}
 
 		managedRecords = append(managedRecords, proxyv1alpha1.ManagedRecord{
 			Description: entry.desc,
 			UUID:        uuid,
 			SourceHost:  entry.sourceHost,
+			CertID:      assignedCertID,
 		})
 	}
 

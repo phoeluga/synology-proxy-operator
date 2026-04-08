@@ -268,6 +268,12 @@ spec:
                   description: ManagedRecord tracks a single DSM reverse proxy record
                     created by the operator.
                   properties:
+                    certID:
+                      description: |-
+                        CertID is the DSM certificate ID currently assigned to this record.
+                        Stored so subsequent AssignCertificate calls can pass it as old_id,
+                        causing DSM to replace the existing entry rather than adding a new one.
+                      type: string
                     description:
                       description: Description is the DSM record description used
                         as the unique lookup key.
