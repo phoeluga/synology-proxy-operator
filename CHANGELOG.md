@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.0.8](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.7...v0.0.8) (2026-04-08)
+
+
+### Bug Fixes
+
+* prevent duplicate certificate service entries in DSM; treat DSM error 4154 (already exists) as success on create ([da9722b](https://github.com/phoeluga/synology-proxy-operator/commit/da9722bf47eeea9fbd3d8139b4b2bab4d1a238e9))
+* skip re-auth on DSM 5xx HTML responses (e.g. 504 timeout) ([fccd04b](https://github.com/phoeluga/synology-proxy-operator/commit/fccd04bcfdf7f0d45dd25308ded0f79bd5c2b02f))
+* unassign certificate from DSM before deleting proxy record ([a824269](https://github.com/phoeluga/synology-proxy-operator/commit/a82426968b502a038ee13a2f3ab8b4e06c5acdab))
+* unassign old certificate entry when proxy record is recreated with new UUID ([0e2a984](https://github.com/phoeluga/synology-proxy-operator/commit/0e2a9842e96c444d5aa74373253615407500e738))
+
 ## [0.0.7](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.6...v0.0.7) (2026-04-06)
 
 
