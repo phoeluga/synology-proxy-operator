@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.9](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.8...v0.0.9) (2026-05-14)
+
+
+### Dependencies
+
+* **deps:** bump googleapis/release-please-action from 4.4.0 to 5.0.0 ([#29](https://github.com/phoeluga/synology-proxy-operator/issues/29)) ([e9decc4](https://github.com/phoeluga/synology-proxy-operator/commit/e9decc4d4de2cdce706fdc520b95854ad8279199))
+* **deps:** bump oras-project/setup-oras from 1.2.4 to 2.0.0 ([#25](https://github.com/phoeluga/synology-proxy-operator/issues/25)) ([0bb0134](https://github.com/phoeluga/synology-proxy-operator/commit/0bb0134a540a5fd8149e8e9edfb69b83551f3f87))
+
 ## [0.0.8](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.7...v0.0.8) (2026-04-08)
 
 
