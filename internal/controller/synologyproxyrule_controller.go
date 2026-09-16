@@ -460,14 +460,19 @@ func extractFromService(svc *corev1.Service) (host string, port int) {
 	return host, 0
 }
 
-// extractFromIngress returns the external IP and port (default 443) from an Ingress.
+// extractFromIngress returns the external IP and port (443 if the Ingress has a TLS
+// entry, 80 otherwise) from an Ingress.
 func extractFromIngress(ing *networkingv1.Ingress) (host string, port int) {
+	port = 80
+	if len(ing.Spec.TLS) > 0 {
+		port = 443
+	}
 	for _, lb := range ing.Status.LoadBalancer.Ingress {
 		if lb.IP != "" {
-			return lb.IP, 443
+			return lb.IP, port
 		}
 		if lb.Hostname != "" {
-			return lb.Hostname, 443
+			return lb.Hostname, port
 		}
 	}
 	return "", 0
