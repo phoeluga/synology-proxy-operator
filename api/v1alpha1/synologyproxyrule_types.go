@@ -204,7 +204,3 @@ type SynologyProxyRuleList struct {
 	metav1.ListMeta `json:"metadata,omitempty"`
 	Items           []SynologyProxyRule `json:"items"`
 }
-
-func init() {
-	SchemeBuilder.Register(&SynologyProxyRule{}, &SynologyProxyRuleList{})
-}
