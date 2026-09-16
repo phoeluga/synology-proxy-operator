@@ -505,8 +505,9 @@ func (r *SynologyProxyRuleReconciler) descriptionFor(rule *proxyv1alpha1.Synolog
 // When spec.sourceHost is set it is returned as-is.
 // Otherwise the hostname is derived in priority order:
 //  1. synology.proxy/source-host annotation on the referenced Service or Ingress
-//  2. <name>.<defaultDomain> where name is the Service/Ingress/rule name
-//  3. Error if defaultDomain is also empty
+//  2. For IngressRef, the first host in the Ingress's own spec.rules
+//  3. <name>.<defaultDomain> where name is the Service/Ingress/rule name
+//  4. Error if defaultDomain is also empty
 func (r *SynologyProxyRuleReconciler) deriveSourceHost(ctx context.Context, rule *proxyv1alpha1.SynologyProxyRule) (string, error) {
 	if rule.Spec.SourceHost != "" {
 		return rule.Spec.SourceHost, nil
@@ -539,6 +540,11 @@ func (r *SynologyProxyRuleReconciler) deriveSourceHost(ctx context.Context, rule
 		if err := r.Get(ctx, types.NamespacedName{Name: ref.Name, Namespace: ingNS}, ing); err == nil {
 			if h := ing.Annotations[AnnotationSourceHost]; h != "" {
 				return h, nil
+			}
+			for _, rule := range ing.Spec.Rules {
+				if rule.Host != "" {
+					return rule.Host, nil
+				}
 			}
 			if r.DefaultDomain != "" {
 				return fmt.Sprintf("%s.%s", ing.Name, r.DefaultDomain), nil
