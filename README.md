@@ -427,7 +427,11 @@ For any resource the operator evaluates in this order:
 
 ## Hostname derivation
 
-When `spec.sourceHost` is empty the operator derives it automatically:
+When `spec.sourceHost` is empty the operator derives it automatically, in priority order:
+
+1. `synology.proxy/source-host` annotation on the referenced Service or Ingress
+2. For `ingressRef`, the first host declared in the Ingress's own `spec.rules` — the Ingress already states the intended public hostname in the common case, so this takes priority over a synthesized name
+3. `<name>.<defaultDomain>`, where name is the Service/Ingress/rule name
 
 <p align="center">
     <img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/chart_hostnameDerivation.png" alt="" width="70%" >
@@ -436,6 +440,7 @@ When `spec.sourceHost` is empty the operator derives it automatically:
 | Mode | Name used for derivation |
 |---|---|
 | Service / Ingress annotation | Service or Ingress name |
+| Ingress with `spec.rules[].host` and no annotation | Host declared on the Ingress |
 | ArgoCD Application | Application name |
 | Manual `SynologyProxyRule` | Rule name, or `serviceRef`/`ingressRef` name |
 
