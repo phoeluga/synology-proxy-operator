@@ -5,7 +5,7 @@
 
 [![CI](https://github.com/phoeluga/synology-proxy-operator/actions/workflows/ci-build-and-test.yaml/badge.svg)](https://github.com/phoeluga/synology-proxy-operator/actions/workflows/ci-build-and-test.yaml)
 [![Release](https://img.shields.io/github/v/release/phoeluga/synology-proxy-operator?label=latest%20release)](https://github.com/phoeluga/synology-proxy-operator/releases)
-[![Go Report Card](https://goreportcard.com/badge/github.com/phoeluga/synology-proxy-operator)](https://goreportcard.com/report/github.com/phoeluga/synology-proxy-operator)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/phoeluga/synology-proxy-operator/badge)](https://securityscorecards.dev/viewer/?uri=github.com/phoeluga/synology-proxy-operator)
 [![Go Version](https://img.shields.io/github/go-mod/go-version/phoeluga/synology-proxy-operator)](go.mod)
 [![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/synology-proxy-operator)](https://artifacthub.io/packages/helm/synology-proxy-operator/synology-proxy-operator)
 
