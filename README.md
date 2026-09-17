@@ -427,7 +427,11 @@ For any resource the operator evaluates in this order:
 
 ## Hostname derivation
 
-When `spec.sourceHost` is empty the operator derives it automatically:
+When `spec.sourceHost` is empty the operator derives it automatically, in priority order:
+
+1. `synology.proxy/source-host` annotation on the referenced Service or Ingress
+2. For `ingressRef`, the first host declared in the Ingress's own `spec.rules` — the Ingress already states the intended public hostname in the common case, so this takes priority over a synthesized name
+3. `<name>.<defaultDomain>`, where name is the Service/Ingress/rule name
 
 <p align="center">
     <img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/chart_hostnameDerivation.png" alt="" width="70%" >
@@ -436,6 +440,7 @@ When `spec.sourceHost` is empty the operator derives it automatically:
 | Mode | Name used for derivation |
 |---|---|
 | Service / Ingress annotation | Service or Ingress name |
+| Ingress with `spec.rules[].host` and no annotation | Host declared on the Ingress |
 | ArgoCD Application | Application name |
 | Manual `SynologyProxyRule` | Rule name, or `serviceRef`/`ingressRef` name |
 
@@ -471,6 +476,8 @@ When `destinationHost` / `destinationPort` are not set:
 <p align="center">
     <img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/chart_backendDiscovery.png" alt="" width="70%" >
 </p>
+
+For `ingressRef`, the port is assumed to be **443 if the Ingress has a `spec.tls` entry, 80 otherwise** — the Ingress's `status.loadBalancer` only exposes an IP/hostname, never a port, so this follows the near-universal convention used by ingress controllers (ingress-nginx, Traefik, etc.). If your ingress controller is exposed on non-standard ports (e.g. a custom NodePort), set `spec.destinationPort` explicitly to skip this guess entirely.
 
 ---
 
