@@ -477,6 +477,8 @@ When `destinationHost` / `destinationPort` are not set:
     <img src="https://raw.githubusercontent.com/phoeluga/synology-proxy-operator/main/docs/images/chart_backendDiscovery.png" alt="" width="70%" >
 </p>
 
+For `ingressRef`, the port is assumed to be **443 if the Ingress has a `spec.tls` entry, 80 otherwise** — the Ingress's `status.loadBalancer` only exposes an IP/hostname, never a port, so this follows the near-universal convention used by ingress controllers (ingress-nginx, Traefik, etc.). If your ingress controller is exposed on non-standard ports (e.g. a custom NodePort), set `spec.destinationPort` explicitly to skip this guess entirely.
+
 ---
 
 ## Annotation reference
