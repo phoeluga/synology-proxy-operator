@@ -12,6 +12,7 @@ import (
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -451,6 +452,84 @@ func TestSPR_BackendDiscoveryFromService(t *testing.T) {
 		}
 		if spr.Status.ResolvedDestinationHost != "10.10.10.10" {
 			return fmt.Errorf("unexpected destination host: %q", spr.Status.ResolvedDestinationHost)
+		}
+		return nil
+	})
+}
+
+// TestSPR_SourceHostFromIngressRules verifies that deriveSourceHost picks up the
+// host declared on the referenced Ingress's own spec.rules when neither
+// spec.sourceHost nor the synology.proxy/source-host annotation is set.
+func TestSPR_SourceHostFromIngressRules(t *testing.T) {
+	dsm := newFakeDSM()
+	srv := httptest.NewServer(dsm)
+	t.Cleanup(srv.Close)
+
+	sc := newSynologyClient(t, srv.URL)
+
+	k8s, _ := startManager(t, func(mgr ctrl.Manager) error {
+		return setupSPRController(mgr, sc, "example.com")
+	})
+
+	ctx := context.Background()
+	ns := "spr-ingress-host"
+	createNamespace(t, k8s, ns)
+
+	pathType := networkingv1.PathTypePrefix
+	ing := &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{Name: "myapp", Namespace: ns},
+		Spec: networkingv1.IngressSpec{
+			Rules: []networkingv1.IngressRule{
+				{
+					Host: "app.custom.example",
+					IngressRuleValue: networkingv1.IngressRuleValue{
+						HTTP: &networkingv1.HTTPIngressRuleValue{
+							Paths: []networkingv1.HTTPIngressPath{{
+								Path:     "/",
+								PathType: &pathType,
+								Backend: networkingv1.IngressBackend{
+									Service: &networkingv1.IngressServiceBackend{
+										Name: "myapp",
+										Port: networkingv1.ServiceBackendPort{Number: 80},
+									},
+								},
+							}},
+						},
+					},
+				},
+			},
+		},
+	}
+	if err := k8s.Create(ctx, ing); err != nil {
+		t.Fatalf("creating ingress: %v", err)
+	}
+
+	// SPR references the Ingress but sets no sourceHost and no source-host
+	// annotation; destination is explicit so backend discovery isn't exercised.
+	spr := &proxyv1alpha1.SynologyProxyRule{
+		ObjectMeta: metav1.ObjectMeta{Name: "myapp", Namespace: ns},
+		Spec: proxyv1alpha1.SynologyProxyRuleSpec{
+			SourcePort:      443,
+			DestinationHost: "10.10.10.10",
+			DestinationPort: 8080,
+			IngressRef:      &proxyv1alpha1.ObjectRef{Name: "myapp", Namespace: ns},
+		},
+	}
+	if err := k8s.Create(ctx, spr); err != nil {
+		t.Fatalf("creating SPR: %v", err)
+	}
+
+	key := types.NamespacedName{Name: "myapp", Namespace: ns}
+
+	eventually(t, func() error {
+		if err := k8s.Get(ctx, key, spr); err != nil {
+			return err
+		}
+		if !spr.Status.Synced {
+			return fmt.Errorf("not synced; conditions=%v", spr.Status.Conditions)
+		}
+		if len(spr.Status.ManagedRecords) != 1 || spr.Status.ManagedRecords[0].SourceHost != "app.custom.example" {
+			return fmt.Errorf("unexpected managed records: %+v", spr.Status.ManagedRecords)
 		}
 		return nil
 	})
