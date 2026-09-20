@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.0.9](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.8...v0.0.9) (2026-09-17)
+
+
+### Features
+
+* derive source host from Ingress spec.rules when unset ([#40](https://github.com/phoeluga/synology-proxy-operator/issues/40)) ([44b2897](https://github.com/phoeluga/synology-proxy-operator/commit/44b28972c2496df75404bd37e427eda6745be2b0))
+
+
+### Bug Fixes
+
+* bump golang.org/x/net, x/text, x/sys to patch known CVEs ([#41](https://github.com/phoeluga/synology-proxy-operator/issues/41)) ([76225da](https://github.com/phoeluga/synology-proxy-operator/commit/76225daff2338b6aec5acba3ab2a8a781c3f9a3f))
+* replace deprecated controller-runtime scheme.Builder ([3886995](https://github.com/phoeluga/synology-proxy-operator/commit/3886995a56898f3325d3be13d38ef267443f0897))
+* use idiomatic naming, correct doc comment, add test coverage ([69a2acb](https://github.com/phoeluga/synology-proxy-operator/commit/69a2acb06832e1002ef664dfb03ed6e2da8ab88f))
+
+
+### Dependencies
+
+* **deps:** bump actions/checkout from 6 to 7 ([3ecceea](https://github.com/phoeluga/synology-proxy-operator/commit/3ecceea8f9643834611e4bd0326e946a55752627))
+* **deps:** bump actions/checkout from 6 to 7 ([35ae660](https://github.com/phoeluga/synology-proxy-operator/commit/35ae660b151dbd9a73df301659b158a2525dac24))
+* **deps:** bump actions/setup-go from 6 to 7 ([8ccc1d0](https://github.com/phoeluga/synology-proxy-operator/commit/8ccc1d0d82df3e5752a14a3279e490e5a29dd298))
+* **deps:** bump actions/setup-go from 6 to 7 ([afadc0e](https://github.com/phoeluga/synology-proxy-operator/commit/afadc0ecf01a5a056a79cf30a62091b92af887cf))
+* **deps:** bump github.com/go-logr/logr from 1.4.3 to 1.4.4 ([390a9f1](https://github.com/phoeluga/synology-proxy-operator/commit/390a9f13914fb907b6b9bf3e84a56100f0c4bb3c))
+* **deps:** bump github.com/go-logr/logr from 1.4.3 to 1.4.4 ([fabb56e](https://github.com/phoeluga/synology-proxy-operator/commit/fabb56e037d877768d7177eac17be03eace4dc10))
+* **deps:** bump golang from 1.26-alpine to 1.27-alpine ([6208088](https://github.com/phoeluga/synology-proxy-operator/commit/62080884703f5fbc4a384a59ae10a0d363fc4c41))
+* **deps:** bump golang from 1.26-alpine to 1.27-alpine ([67a5212](https://github.com/phoeluga/synology-proxy-operator/commit/67a5212e3a4505c7a644f29dbc84447cdb40d0c8))
+* **deps:** bump googleapis/release-please-action from 4.4.0 to 5.0.0 ([#29](https://github.com/phoeluga/synology-proxy-operator/issues/29)) ([e9decc4](https://github.com/phoeluga/synology-proxy-operator/commit/e9decc4d4de2cdce706fdc520b95854ad8279199))
+* **deps:** bump imjasonh/setup-crane from 0.5 to 0.7 ([0db7166](https://github.com/phoeluga/synology-proxy-operator/commit/0db7166c62227069b29eabf9b7bf1900a5f9b0e5))
+* **deps:** bump imjasonh/setup-crane from 0.5 to 0.7 ([7f4328f](https://github.com/phoeluga/synology-proxy-operator/commit/7f4328f2619a43120f2a3495276868392ad95961))
+* **deps:** bump oras-project/setup-oras from 1.2.4 to 2.0.0 ([#25](https://github.com/phoeluga/synology-proxy-operator/issues/25)) ([0bb0134](https://github.com/phoeluga/synology-proxy-operator/commit/0bb0134a540a5fd8149e8e9edfb69b83551f3f87))
+* **deps:** bump oras-project/setup-oras from 2.0.0 to 2.0.1 ([1b2ad3d](https://github.com/phoeluga/synology-proxy-operator/commit/1b2ad3df2e756f1741ec79aa406f5309b493c839))
+* **deps:** bump oras-project/setup-oras from 2.0.0 to 2.0.1 ([ec00ae6](https://github.com/phoeluga/synology-proxy-operator/commit/ec00ae6b567597d899e9bad843611a58226267cc))
+* **deps:** bump the k8s group across 1 directory with 3 updates ([933e98e](https://github.com/phoeluga/synology-proxy-operator/commit/933e98e183ca64a7570a7d47218e5fd874a741f2))
+* **deps:** bump the k8s group across 1 directory with 3 updates ([d4807de](https://github.com/phoeluga/synology-proxy-operator/commit/d4807def18c69d2ffde76f9145481ed22dc5e720))
+
 ## [0.0.8](https://github.com/phoeluga/synology-proxy-operator/compare/v0.0.7...v0.0.8) (2026-04-08)
 
 
